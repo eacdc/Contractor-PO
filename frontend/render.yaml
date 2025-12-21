@@ -3,7 +3,7 @@ services:
     name: contractor-po-system
     env: static
     buildCommand: ""
-    staticPublishPath: .
+    staticPublishPath: Contractor PO System/frontend
     routes:
       - type: rewrite
         source: /*
