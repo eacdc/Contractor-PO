@@ -1,5 +1,8 @@
 // API Configuration
-const API_BASE_URL = 'http://localhost:3001/api';
+// Automatically detect environment: use production URL if not on localhost
+const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:3001/api'
+  : 'https://cdcapi.onrender.com/api';
 
 // Helper function for API calls
 async function apiCall(endpoint, options = {}) {
