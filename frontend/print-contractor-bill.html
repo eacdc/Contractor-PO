@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contractor PO System - Print Contractor Bill</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-logo">CP</div>
+          <div class="brand-text">
+            <h1>Contractor PO System</h1>
+            <p>View and print contractor bills.</p>
+          </div>
+        </div>
+        <a href="home.html" class="home-btn">Home</a>
+      </header>
+
+      <main class="app-main app-main--home">
+        <section class="intro">
+          <h2>Print Contractor Bill</h2>
+          <p>Select a contractor and see their paid or unpaid bills.</p>
+        </section>
+
+        <!-- Filters -->
+        <section class="panel">
+          <div class="bill-filters">
+            <div class="field field--inline">
+              <label for="contractorFilter">Contractor Name</label>
+              <select id="contractorFilter" required>
+                <option value="">Select contractor</option>
+              </select>
+            </div>
+
+            <div class="field field--inline">
+              <label for="billStatusFilter">Bill Status</label>
+              <select id="billStatusFilter">
+                <option value="unpaid">Unpaid Bills</option>
+                <option value="paid">Paid Bills</option>
+              </select>
+            </div>
+          </div>
+          <p class="inline-warning" id="billPageWarning"></p>
+        </section>
+
+        <!-- Bills Table -->
+        <section class="panel">
+          <header class="panel-header">
+            <h3 id="billTableTitle">Unpaid Bills</h3>
+          </header>
+          <div class="panel-body">
+            <div class="field" style="margin-bottom: 14px;">
+              <label for="billNumberSearch">Search Bill Number</label>
+              <input
+                type="text"
+                id="billNumberSearch"
+                placeholder="Enter bill number to search..."
+              />
+            </div>
+            <div class="table-wrapper">
+              <table class="data-table" id="contractorBillsTable">
+                <thead>
+                  <!-- Filled by JS -->
+                </thead>
+                <tbody>
+                  <!-- Rows filled by JS -->
+                </tbody>
+              </table>
+            </div>
+            <p class="inline-info" id="billTableInfo"></p>
+          </div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <span>Contractor PO System</span>
+        <span class="divider">•</span>
+        <span>Print Contractor Bill</span>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { contractorsAPI, billsAPI } from './api.js';
+      
+      const API_BASE_URL = 'http://localhost:3000/api';
+
+      const contractorSelect = document.getElementById('contractorFilter');
+      const statusSelect = document.getElementById('billStatusFilter');
+      const billNumberSearch = document.getElementById('billNumberSearch');
+      const warningEl = document.getElementById('billPageWarning');
+      const table = document.getElementById('contractorBillsTable');
+      const tableHead = table.querySelector('thead');
+      const tableBody = table.querySelector('tbody');
+      const tableTitle = document.getElementById('billTableTitle');
+      const tableInfo = document.getElementById('billTableInfo');
+
+      let allBills = [];
+
+      function formatDate(dateStr) {
+        if (!dateStr) return '-';
+        const d = new Date(dateStr);
+        if (Number.isNaN(d.getTime())) return '-';
+        return d.toLocaleDateString();
+      }
+
+      function calculateBillTotal(bill) {
+        if (!bill || !Array.isArray(bill.jobs)) return 0;
+        return bill.jobs.reduce((sumJobs, job) => {
+          const jobTotal = (job.ops || []).reduce(
+            (sumOps, op) => sumOps + (Number(op.totalValue) || 0),
+            0
+          );
+          return sumJobs + jobTotal;
+        }, 0);
+      }
+
+      async function generateBillPDF(bill) {
+        const { jsPDF } = window.jspdf;
+        // Create PDF in landscape mode
+        const doc = new jsPDF('landscape', 'mm', 'a4');
+        
+        // Page dimensions
+        const pageWidth = doc.internal.pageSize.getWidth();  // ~297mm
+        const pageHeight = doc.internal.pageSize.getHeight(); // ~210mm
+        const margin = 15;
+        const tableWidth = pageWidth - (2 * margin); // Full width table
+        let yPos = margin;
+        
+        // ===== HEADER =====
+        doc.setFontSize(22);
+        doc.setFont(undefined, 'bold');
+        doc.setTextColor(40, 40, 40);
+        doc.text('CONTRACTOR BILL', pageWidth / 2, yPos, { align: 'center' });
+        yPos += 12;
+        
+        // Divider line under header
+        doc.setDrawColor(79, 70, 229); // Accent color
+        doc.setLineWidth(0.8);
+        doc.line(margin, yPos, pageWidth - margin, yPos);
+        yPos += 10;
+        
+        // Bill details row
+        doc.setFontSize(11);
+        doc.setFont(undefined, 'normal');
+        doc.setTextColor(60, 60, 60);
+        const billDate = bill.createdAt ? new Date(bill.createdAt).toLocaleDateString() : '-';
+        doc.text(`Bill No: ${bill.billNumber}`, margin, yPos);
+        doc.text(`Date: ${billDate}`, pageWidth - margin, yPos, { align: 'right' });
+        yPos += 7;
+        
+        doc.setFontSize(12);
+        doc.setFont(undefined, 'bold');
+        doc.setTextColor(40, 40, 40);
+        doc.text(`Contractor: ${bill.contractorName}`, margin, yPos);
+        yPos += 12;
+        
+        // ===== TABLE SETUP =====
+        const colHeaders = ['Job Number', 'Operation', 'Qty/Book', 'Rate', 'Qty Completed', 'Total Value'];
+        // Distribute columns proportionally across full width
+        const colRatios = [0.12, 0.30, 0.12, 0.12, 0.15, 0.19]; // Must sum to 1
+        const colWidths = colRatios.map(r => r * tableWidth);
+        const colX = [margin];
+        for (let i = 1; i < colHeaders.length; i++) {
+          colX.push(colX[i - 1] + colWidths[i - 1]);
+        }
+        const rowHeight = 9;
+        
+        // Function to draw table header
+        function drawTableHeader(y) {
+          // Header background
+          doc.setFillColor(79, 70, 229); // Purple accent
+          doc.rect(margin, y, tableWidth, rowHeight, 'F');
+          
+          // Header text
+          doc.setFont(undefined, 'bold');
+          doc.setFontSize(10);
+          doc.setTextColor(255, 255, 255);
+          
+          colHeaders.forEach((header, i) => {
+            const cellX = colX[i] + colWidths[i] / 2;
+            doc.text(header, cellX, y + rowHeight - 2.5, { align: 'center' });
+          });
+          
+          return y + rowHeight;
+        }
+        
+        // Function to draw table row
+        function drawTableRow(y, values, isAlt) {
+          // Row background
+          if (isAlt) {
+            doc.setFillColor(245, 245, 250);
+            doc.rect(margin, y, tableWidth, rowHeight, 'F');
+          }
+          
+          // Cell borders
+          doc.setDrawColor(220, 220, 220);
+          doc.setLineWidth(0.1);
+          doc.line(margin, y + rowHeight, margin + tableWidth, y + rowHeight);
+          
+          // Vertical lines
+          colX.forEach((x, i) => {
+            if (i > 0) {
+              doc.line(x, y, x, y + rowHeight);
+            }
+          });
+          
+          // Cell content
+          doc.setFont(undefined, 'normal');
+          doc.setFontSize(9);
+          doc.setTextColor(50, 50, 50);
+          
+          values.forEach((val, i) => {
+            const cellX = i < 2 ? colX[i] + 3 : colX[i] + colWidths[i] - 3;
+            const align = i < 2 ? 'left' : 'right';
+            doc.text(String(val), cellX, y + rowHeight - 2.5, { align: align });
+          });
+          
+          return y + rowHeight;
+        }
+        
+        // Draw table header
+        yPos = drawTableHeader(yPos);
+        const tableStartY = yPos - rowHeight;
+        let currentTableStartY = tableStartY;
+        
+        // Draw table rows
+        let grandTotal = 0;
+        let rowCount = 0;
+        
+        bill.jobs.forEach((job) => {
+          job.ops.forEach((op, opIndex) => {
+            // Check for page break
+            if (yPos > pageHeight - 50) {
+              // Draw outer border for current page
+              doc.setDrawColor(79, 70, 229);
+              doc.setLineWidth(0.3);
+              doc.rect(margin, currentTableStartY, tableWidth, yPos - currentTableStartY);
+              
+              doc.addPage('landscape');
+              yPos = margin;
+              yPos = drawTableHeader(yPos);
+              currentTableStartY = yPos - rowHeight;
+            }
+            
+            const qtyBook = Number(op.qtyBook || 0);
+            const rate = Number(op.rate || 0);
+            const qtyCompleted = Number(op.qtyCompleted || 0);
+            const total = Number(op.totalValue || 0);
+            grandTotal += total;
+            
+            // Get operation name
+            const operationName = op.opsName || op.operationName || op.name || `Op ${opIndex + 1}`;
+            const jobNumberText = opIndex === 0 ? job.jobNumber : '';
+            
+            const values = [
+              jobNumberText,
+              operationName,
+              qtyBook.toFixed(2),
+              rate.toFixed(2),
+              qtyCompleted.toFixed(2),
+              total.toFixed(2)
+            ];
+            
+            yPos = drawTableRow(yPos, values, rowCount % 2 === 1);
+            rowCount++;
+          });
+        });
+        
+        // Draw outer border
+        doc.setDrawColor(79, 70, 229);
+        doc.setLineWidth(0.3);
+        doc.rect(margin, currentTableStartY, tableWidth, yPos - currentTableStartY);
+        
+        // ===== GRAND TOTAL =====
+        yPos += 5;
+        doc.setFillColor(240, 240, 245);
+        doc.rect(pageWidth - margin - 100, yPos, 100, 10, 'F');
+        doc.setDrawColor(79, 70, 229);
+        doc.setLineWidth(0.3);
+        doc.rect(pageWidth - margin - 100, yPos, 100, 10);
+        
+        doc.setFont(undefined, 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(40, 40, 40);
+        doc.text('Grand Total:', pageWidth - margin - 55, yPos + 7, { align: 'right' });
+        doc.text(grandTotal.toFixed(2), pageWidth - margin - 3, yPos + 7, { align: 'right' });
+        
+        // ===== SIGNATURE LINE =====
+        const sigY = pageHeight - 25;
+        doc.setDrawColor(100, 100, 100);
+        doc.setLineWidth(0.2);
+        doc.line(pageWidth - margin - 70, sigY, pageWidth - margin, sigY);
+        doc.setFont(undefined, 'normal');
+        doc.setFontSize(9);
+        doc.setTextColor(100, 100, 100);
+        doc.text('Authorized Signature', pageWidth - margin - 35, sigY + 5, { align: 'center' });
+        
+        // ===== FOOTER =====
+        doc.setFontSize(8);
+        doc.setTextColor(150, 150, 150);
+        doc.text('Generated by Contractor PO System', pageWidth / 2, pageHeight - 5, { align: 'center' });
+        
+        // Save PDF
+        doc.save(`Bill_${bill.billNumber}.pdf`);
+      }
+
+      async function downloadBill(billNumber) {
+        try {
+          const bill = await billsAPI.getByBillNumber(billNumber);
+          // Debug: log bill structure to verify operation names
+          console.log('Bill data received:', bill);
+          if (bill.jobs && bill.jobs.length > 0) {
+            console.log('First job operations:', bill.jobs[0].ops);
+          }
+          generateBillPDF(bill);
+        } catch (error) {
+          console.error('Error downloading bill:', error);
+          warningEl.textContent = 'Error downloading bill. Please try again.';
+          setTimeout(() => {
+            warningEl.textContent = '';
+          }, 3000);
+        }
+      }
+
+      async function markBillAsPaid(billNumber) {
+        try {
+          await billsAPI.markAsPaid(billNumber);
+          // Reload bills to refresh the table
+          await loadBills();
+          warningEl.textContent = 'Bill marked as paid successfully!';
+          warningEl.style.color = '#4ade80';
+          setTimeout(() => {
+            warningEl.textContent = '';
+            warningEl.style.color = '';
+          }, 3000);
+        } catch (error) {
+          console.error('Error marking bill as paid:', error);
+          warningEl.textContent = error.message || 'Error marking bill as paid. Please try again.';
+          setTimeout(() => {
+            warningEl.textContent = '';
+          }, 3000);
+        }
+      }
+
+      function renderTable() {
+        const contractorName =
+          contractorSelect.options[contractorSelect.selectedIndex]?.textContent || '';
+        const status = statusSelect.value; // 'paid' | 'unpaid'
+        const searchTerm = (billNumberSearch.value || '').trim().toLowerCase();
+
+        tableBody.innerHTML = '';
+        tableHead.innerHTML = '';
+        warningEl.textContent = '';
+        tableInfo.textContent = '';
+
+        if (!contractorSelect.value) {
+          tableInfo.textContent = 'Please select a contractor to view bills.';
+          return;
+        }
+
+        const isPaid = status === 'paid';
+        tableTitle.textContent = isPaid ? 'Paid Bills' : 'Unpaid Bills';
+
+        // Get current date and 30 days ago for paid bills filter
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now);
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+        let filtered = allBills.filter((bill) => {
+          if (bill.contractorName !== contractorName) return false;
+          const paid = bill.paymentStatus === 'Yes';
+          
+          // Filter by payment status
+          if (isPaid && !paid) return false;
+          if (!isPaid && paid) return false;
+
+          // For paid bills, only show those paid in the last 30 days
+          if (isPaid && paid) {
+            if (!bill.paymentDate) return false;
+            const paymentDate = new Date(bill.paymentDate);
+            if (paymentDate < thirtyDaysAgo) return false;
+          }
+
+          // Filter by bill number search
+          if (searchTerm) {
+            const billNum = (bill.billNumber || '').toLowerCase();
+            if (!billNum.includes(searchTerm)) return false;
+          }
+
+          return true;
+        });
+
+        // Sort unpaid bills by creation date (oldest first)
+        if (!isPaid) {
+          filtered.sort((a, b) => {
+            const dateA = a.createdAt ? new Date(a.createdAt) : new Date(0);
+            const dateB = b.createdAt ? new Date(b.createdAt) : new Date(0);
+            return dateA - dateB; // Ascending order (oldest first)
+          });
+        }
+
+        if (filtered.length === 0) {
+          tableHead.innerHTML = '';
+          tableBody.innerHTML =
+            '<tr><td colspan="5">No ' +
+            (isPaid ? 'paid' : 'unpaid') +
+            ' bills found for this contractor.</td></tr>';
+          return;
+        }
+
+        if (isPaid) {
+          tableHead.innerHTML = `
+            <tr>
+              <th>Bill Number</th>
+              <th>Paid Date</th>
+              <th>Total Amount</th>
+              <th>Download</th>
+            </tr>
+          `;
+        } else {
+          tableHead.innerHTML = `
+            <tr>
+              <th>Bill Number</th>
+              <th>Creation Date</th>
+              <th>Total Amount</th>
+              <th>Download</th>
+              <th>Pay</th>
+            </tr>
+          `;
+        }
+
+        let grandTotal = 0;
+
+        filtered.forEach((bill) => {
+          const total = calculateBillTotal(bill);
+          grandTotal += total;
+
+          const tr = document.createElement('tr');
+
+          if (isPaid) {
+            tr.innerHTML = `
+              <td>${bill.billNumber}</td>
+              <td>${formatDate(bill.paymentDate)}</td>
+              <td>${total.toFixed(2)}</td>
+              <td>
+                <button class="secondary-btn primary-btn--sm bill-download-btn" data-bill="${bill.billNumber}">
+                  Download
+                </button>
+              </td>
+            `;
+          } else {
+            tr.innerHTML = `
+              <td>${bill.billNumber}</td>
+              <td>${formatDate(bill.createdAt)}</td>
+              <td>${total.toFixed(2)}</td>
+              <td>
+                <button class="secondary-btn primary-btn--sm bill-download-btn" data-bill="${bill.billNumber}">
+                  Download
+                </button>
+              </td>
+              <td>
+                <button class="primary-btn primary-btn--sm bill-pay-btn" data-bill="${bill.billNumber}">
+                  Pay
+                </button>
+              </td>
+            `;
+          }
+
+          tableBody.appendChild(tr);
+        });
+
+        tableInfo.textContent = `Showing ${filtered.length} ${
+          isPaid ? 'paid' : 'unpaid'
+        } bill(s). Grand total: ${grandTotal.toFixed(2)}`;
+      }
+
+      async function loadContractors() {
+        try {
+          const contractors = await contractorsAPI.getAll();
+          contractorSelect.innerHTML = '<option value="">Select contractor</option>';
+          contractors.forEach((c) => {
+            const opt = document.createElement('option');
+            // Keep contractorId as value, show readable name
+            opt.value = c.contractorId || c._id || c.name;
+            opt.textContent = c.name;
+            contractorSelect.appendChild(opt);
+          });
+        } catch (err) {
+          console.error('Error loading contractors', err);
+          warningEl.textContent = 'Error loading contractors. Please refresh the page.';
+        }
+      }
+
+      async function loadBills() {
+        try {
+          allBills = await billsAPI.getAll();
+          renderTable();
+        } catch (err) {
+          console.error('Error loading bills', err);
+          warningEl.textContent = 'Error loading bills. Please refresh the page.';
+        }
+      }
+
+      contractorSelect.addEventListener('change', () => {
+        renderTable();
+      });
+
+      statusSelect.addEventListener('change', () => {
+        renderTable();
+      });
+
+      billNumberSearch.addEventListener('input', () => {
+        renderTable();
+      });
+
+      tableBody.addEventListener('click', async (e) => {
+        const target = e.target;
+        if (!(target instanceof HTMLElement)) return;
+
+        if (target.classList.contains('bill-download-btn')) {
+          const billNumber = target.getAttribute('data-bill');
+          if (billNumber) {
+            await downloadBill(billNumber);
+          }
+        } else if (target.classList.contains('bill-pay-btn')) {
+          const billNumber = target.getAttribute('data-bill');
+          if (billNumber) {
+            if (confirm(`Are you sure you want to mark bill ${billNumber} as paid?`)) {
+              await markBillAsPaid(billNumber);
+            }
+          }
+        }
+      });
+
+      // Initial load
+      loadContractors();
+      loadBills();
+    </script>
+  </body>
+</html>
+

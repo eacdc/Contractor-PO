@@ -1,0 +1,675 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contractor PO System - Work Done</title>
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      /* Disabled Save Bill button cursor */
+      #saveBillBtn:disabled {
+        cursor: not-allowed;
+        opacity: 0.6;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-logo">CP</div>
+          <div class="brand-text">
+            <h1>Contractor PO System</h1>
+            <p>Record work done by contractor for a job.</p>
+          </div>
+        </div>
+        <a href="home.html" class="home-btn">Home</a>
+      </header>
+
+      <main class="app-main app-main--home">
+        <section class="intro">
+          <h2>Work Done</h2>
+          <p>Search by contractor and job to update completed quantities.</p>
+        </section>
+
+        <!-- Search -->
+        <section class="panel">
+          <form class="job-search" action="#" method="get" id="workSearchForm">
+            <div class="field field--inline">
+              <label for="contractorName">Contractor Name</label>
+              <select id="contractorName" name="contractorName" required>
+                <option value="">Select contractor</option>
+              </select>
+            </div>
+
+            <div class="field field--inline">
+              <label for="jobNumberWork">Job Number</label>
+              <input
+                id="jobNumberWork"
+                name="jobNumberWork"
+                type="text"
+                list="jobNumberList"
+                placeholder="Enter job number"
+                autocomplete="off"
+                required
+              />
+              <datalist id="jobNumberList"></datalist>
+            </div>
+
+            <button class="primary-btn" type="submit">Search</button>
+          </form>
+        </section>
+
+        <!-- Section 1: Operations Pending -->
+        <section class="panel panel--collapsible panel-collapsed" id="opsPendingPanel">
+          <header class="panel-header">
+            <h3>Operations Pending</h3>
+          </header>
+          <div class="panel-body">
+            <div class="table-wrapper">
+              <table class="data-table" id="opsPendingTable">
+                <thead>
+                  <tr>
+                    <th>Operations</th>
+                    <th>Total Qty</th>
+                    <th>Pending Qty</th>
+                    <th>Qty to Add</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <!-- Rows will be populated from backend -->
+                </tbody>
+              </table>
+            </div>
+
+            <div class="button-row">
+              <button class="secondary-btn primary-btn--sm" type="button" id="addBtn">
+                ADD
+              </button>
+            </div>
+
+            <p class="inline-warning" id="workDoneWarning"></p>
+          </div>
+        </section>
+
+        <!-- Bill Table Section -->
+        <section class="panel panel--collapsible panel-collapsed" id="billTablePanel">
+          <header class="panel-header">
+            <h3>Bill Details</h3>
+          </header>
+          <div class="panel-body">
+            <div class="table-wrapper">
+              <table class="data-table" id="billTable">
+                <thead>
+                  <tr>
+                    <th>Job Number</th>
+                    <th>Operation</th>
+                    <th>Qty/Book</th>
+                    <th>Rate</th>
+                    <th>Qty Completed</th>
+                    <th>Total Value</th>
+                  </tr>
+                </thead>
+                <tbody id="billTableBody">
+                  <!-- Rows will be populated when ADD button is clicked -->
+                </tbody>
+                <tfoot id="billTableFooter">
+                  <!-- Footer will show total -->
+                </tfoot>
+              </table>
+            </div>
+
+            <div class="button-row">
+              <button class="primary-btn primary-btn--sm" type="button" id="saveBillBtn">
+                Save Bill
+              </button>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <span>Contractor PO System</span>
+        <span class="divider">•</span>
+        <span>Work Done</span>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { workAPI, contractorsAPI, jobsAPI, billsAPI } from './api.js';
+
+      const workSearchForm = document.getElementById("workSearchForm");
+      const opsPendingPanel = document.getElementById("opsPendingPanel");
+      const opsPendingTable = document.getElementById("opsPendingTable");
+      const opsPendingBody = opsPendingTable?.querySelector('tbody');
+      const workDoneWarning = document.getElementById("workDoneWarning");
+      const contractorSelect = document.getElementById("contractorName");
+      const jobNumberInput = document.getElementById("jobNumberWork");
+      const jobNumberList = document.getElementById("jobNumberList");
+      const saveBtn = document.getElementById("saveBillBtn");
+      const addBtn = document.getElementById("addBtn");
+      const billTablePanel = document.getElementById("billTablePanel");
+      const billTableBody = document.getElementById("billTableBody");
+      const homeBtn = document.querySelector(".home-btn");
+      let currentContractor = null;
+      let currentJobNumber = null;
+      let currentOperationsData = []; // Store operations data for bill table
+      let billData = []; // Store accumulated bill data across job numbers
+      let hasUnsavedBillData = false; // Track if there's unsaved bill data
+      // Cache to track pending qty reductions per job and operation
+      // Structure: { jobNumber: { opId: totalReduction } }
+      let pendingQtyCache = {};
+
+      // Load contractors and job numbers on page load
+      async function loadContractors() {
+        try {
+          const contractors = await contractorsAPI.getAll();
+          contractorSelect.innerHTML = '<option value="">Select contractor</option>';
+          contractors.forEach(contractor => {
+            const option = document.createElement('option');
+            option.value = contractor.contractorId;
+            option.textContent = contractor.name;
+            contractorSelect.appendChild(option);
+          });
+        } catch (error) {
+          console.error('Error loading contractors:', error);
+          workDoneWarning.textContent = 'Error loading contractors. Please refresh the page.';
+        }
+      }
+
+      async function loadJobNumbers() {
+        try {
+          const jobNumbers = await jobsAPI.getJobNumbers();
+          if (jobNumberList) {
+            jobNumberList.innerHTML = "";
+            jobNumbers.forEach(jobNumber => {
+              const option = document.createElement('option');
+              option.value = jobNumber;
+              jobNumberList.appendChild(option);
+            });
+          }
+        } catch (error) {
+          console.error('Error loading job numbers:', error);
+          workDoneWarning.textContent = 'Error loading job numbers. Please refresh the page.';
+        }
+      }
+
+      // Load data on page load
+      loadContractors();
+      loadJobNumbers();
+
+      // Search for pending work
+      if (workSearchForm && opsPendingPanel) {
+        workSearchForm.addEventListener("submit", async (e) => {
+          e.preventDefault();
+          
+          const contractor = contractorSelect.value;
+          const jobNumber = jobNumberInput.value.trim();
+
+          if (!contractor || !jobNumber) {
+            workDoneWarning.textContent = "Please select contractor and job number.";
+            return;
+          }
+
+          currentContractor = contractor;
+          currentJobNumber = jobNumber;
+
+          try {
+            const result = await workAPI.getPendingFromJobOpsMaster(jobNumber);
+            opsPendingPanel.classList.remove("panel-collapsed");
+
+            // Populate table
+            if (opsPendingBody) {
+              opsPendingBody.innerHTML = "";
+              
+              if (result.operations && result.operations.length > 0) {
+                // Store operations data for bill table
+                currentOperationsData = result.operations;
+                
+                result.operations.forEach(op => {
+                  // Get cached reduction for this job and operation
+                  const cachedReduction = pendingQtyCache[jobNumber]?.[op.opId] || 0;
+                  // Calculate adjusted pending qty
+                  const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
+                  
+                  const row = document.createElement("tr");
+                  row.innerHTML = `
+                    <td>${op.opsName || '-'}</td>
+                    <td>${op.totalOpsQty || 0}</td>
+                    <td class="pending-cell">${adjustedPendingQty}</td>
+                    <td>
+                      <input
+                        type="number"
+                        class="work-qty-input"
+                        min="0"
+                        max="${adjustedPendingQty}"
+                        step="1"
+                        data-op-id="${op.opId}"
+                      />
+                    </td>
+                  `;
+                  opsPendingBody.appendChild(row);
+                });
+
+                // Attach event listeners to new inputs
+                attachQtyListeners();
+                
+                // Show ADD button when there are pending operations
+                if (addBtn) {
+                  addBtn.style.display = "inline-block";
+                }
+              } else {
+                opsPendingBody.innerHTML = '<tr><td colspan="4">No pending operations</td></tr>';
+                
+                // Hide ADD button when there are no pending operations
+                if (addBtn) {
+                  addBtn.style.display = "none";
+                }
+              }
+            }
+          } catch (error) {
+            workDoneWarning.textContent = error.message || "Error loading pending work.";
+          }
+        });
+      }
+
+      // Enforce that entered qty is not more than pending qty
+      function attachQtyListeners() {
+      document.querySelectorAll(".work-qty-input").forEach((input) => {
+        input.addEventListener("input", () => {
+          const row = input.closest("tr");
+          const pendingCell = row?.querySelector(".pending-cell");
+          if (!pendingCell) return;
+
+          const pending = parseFloat(pendingCell.textContent || "0") || 0;
+          let value = parseFloat(input.value || "0");
+
+          if (value > pending) {
+            input.value = pending.toString();
+              if (workDoneWarning) {
+                workDoneWarning.textContent =
+                "Entered quantity cannot exceed pending quantity. It has been limited to the pending qty.";
+            }
+          } else {
+              if (workDoneWarning) {
+                workDoneWarning.textContent = "";
+            }
+          }
+        });
+      });
+      }
+
+      // Save work done
+      // Hide buttons initially and disable Save Bill button
+      if (saveBtn) {
+        saveBtn.style.display = "none";
+        saveBtn.disabled = true;
+      }
+      if (addBtn) {
+        addBtn.style.display = "none";
+      }
+
+      // ADD button click handler - populate bill table
+      if (addBtn) {
+        addBtn.addEventListener("click", () => {
+          if (!currentJobNumber || !currentOperationsData || currentOperationsData.length === 0) {
+            workDoneWarning.textContent = "Please search for a job with pending operations first.";
+            return;
+          }
+
+          // Get qty to add values from the operations pending table
+          const qtyInputs = document.querySelectorAll(".work-qty-input");
+          const qtyToAddMap = {};
+          
+          qtyInputs.forEach(input => {
+            const opId = input.dataset.opId;
+            const qtyToAdd = parseFloat(input.value || "0") || 0;
+            if (opId && qtyToAdd > 0) {
+              qtyToAddMap[opId] = qtyToAdd;
+            }
+          });
+
+          // Check if any quantities were entered
+          if (Object.keys(qtyToAddMap).length === 0) {
+            workDoneWarning.textContent = "Please enter quantities in 'Qty to Add' fields first.";
+            return;
+          }
+
+          // Add operations to bill data (accumulate across job numbers)
+          currentOperationsData.forEach(op => {
+            const qtyCompleted = qtyToAddMap[op.opId] || 0;
+            
+            // Only add operations where qty to add > 0
+            if (qtyCompleted > 0) {
+              const rate = op.rate || 0;
+              const totalValue = qtyCompleted * rate;
+              
+              // Ensure opsName is available - it should come from the backend response
+              const opsName = op.opsName;
+              
+              if (!opsName || !opsName.trim() || opsName.trim() === 'Unknown' || opsName.trim() === '-') {
+                console.error('Missing or invalid opsName for operation:', op);
+                console.error('Full operation object:', JSON.stringify(op, null, 2));
+                workDoneWarning.textContent = `Error: Operation name is missing. Please refresh the page and try again.`;
+                return;
+              }
+              
+              billData.push({
+                jobNumber: currentJobNumber,
+                opId: op.opId, // Store opId for updating JobOpsMaster and Contractor_WD
+                opsName: opsName.trim(),
+                qtyBook: op.qtyPerBook || 0,
+                rate: rate,
+                qtyCompleted: qtyCompleted,
+                totalValue: totalValue
+              });
+              
+              hasUnsavedBillData = true;
+            }
+          });
+
+          // Refresh bill table with all accumulated data
+          refreshBillTable();
+
+          // Update pending quantities in the operations table and cache
+          qtyInputs.forEach(input => {
+            const opId = input.dataset.opId;
+            const qtyAdded = parseFloat(input.value || "0") || 0;
+            
+            if (opId && qtyAdded > 0) {
+              // Update cache
+              if (!pendingQtyCache[currentJobNumber]) {
+                pendingQtyCache[currentJobNumber] = {};
+              }
+              if (!pendingQtyCache[currentJobNumber][opId]) {
+                pendingQtyCache[currentJobNumber][opId] = 0;
+              }
+              pendingQtyCache[currentJobNumber][opId] += qtyAdded;
+              
+              // Find the corresponding row
+              const row = input.closest("tr");
+              const pendingCell = row?.querySelector(".pending-cell");
+              
+              if (pendingCell) {
+                const currentPending = parseFloat(pendingCell.textContent || "0") || 0;
+                const newPending = Math.max(0, currentPending - qtyAdded);
+                pendingCell.textContent = newPending;
+                
+                // Update the max value of the input field
+                input.max = newPending;
+              }
+            }
+            
+            // Clear the input field
+            input.value = "";
+          });
+
+          // Enable Save Bill button since data was just added to bill table
+          if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.style.display = "inline-block";
+          }
+
+          // Show bill table panel
+          if (billTablePanel) {
+            billTablePanel.classList.remove("panel-collapsed");
+          }
+        });
+      }
+
+      // Function to refresh bill table with accumulated data
+      function refreshBillTable() {
+        const billTableFooter = document.getElementById("billTableFooter");
+        
+        if (billTableBody) {
+          billTableBody.innerHTML = "";
+          
+          let totalValueSum = 0;
+          
+          billData.forEach(item => {
+            // Skip items without opsName (legacy data)
+            if (!item.opsName || !item.opsName.trim()) {
+              console.warn('Skipping item without opsName:', item);
+              return;
+            }
+            
+            totalValueSum += item.totalValue;
+            
+            const row = document.createElement("tr");
+            row.innerHTML = `
+              <td>${item.jobNumber}</td>
+              <td>${item.opsName}</td>
+              <td>${item.qtyBook}</td>
+              <td>${item.rate.toFixed(2)}</td>
+              <td>${item.qtyCompleted}</td>
+              <td>${item.totalValue.toFixed(2)}</td>
+            `;
+            billTableBody.appendChild(row);
+          });
+          
+          // Update footer with total
+          if (billTableFooter) {
+            billTableFooter.innerHTML = `
+              <tr>
+                <td colspan="5" style="text-align: right; font-weight: bold;">Total:</td>
+                <td style="font-weight: bold;">${totalValueSum.toFixed(2)}</td>
+              </tr>
+            `;
+          }
+        }
+      }
+
+      // Function to clear all data with confirmation
+      async function clearAllDataWithConfirmation() {
+        if (hasUnsavedBillData) {
+          const confirmed = confirm("You have unsaved bill data. Do you want to save it before clearing? Click OK to save, Cancel to discard.");
+          
+          if (confirmed) {
+            // User wants to save - trigger Save Bill
+            await saveBill();
+            return true; // Data was saved
+          } else {
+            // User wants to discard
+            const discardConfirmed = confirm("Are you sure you want to discard all unsaved bill data?");
+            if (!discardConfirmed) {
+              return false; // User cancelled, don't clear
+            }
+          }
+        }
+        
+        // Clear all data
+        clearAllData();
+        return true;
+      }
+
+      // Function to clear all data
+      function clearAllData() {
+        jobNumberInput.value = "";
+        currentJobNumber = null;
+        currentOperationsData = [];
+        billData = [];
+        hasUnsavedBillData = false;
+        pendingQtyCache = {}; // Clear pending qty cache
+        
+        opsPendingPanel.classList.add("panel-collapsed");
+        billTablePanel.classList.add("panel-collapsed");
+        
+        if (opsPendingBody) {
+          opsPendingBody.innerHTML = "";
+        }
+        if (billTableBody) {
+          billTableBody.innerHTML = "";
+        }
+        
+        if (saveBtn) {
+          saveBtn.style.display = "none";
+        }
+        if (addBtn) {
+          addBtn.style.display = "none";
+        }
+      }
+
+      // Save Bill button handler
+      async function saveBill() {
+        if (!currentContractor || billData.length === 0) {
+          workDoneWarning.textContent = "Please add operations to the bill first.";
+          return false;
+        }
+
+        // Get contractor name
+        const contractorName = contractorSelect.options[contractorSelect.selectedIndex]?.textContent || '';
+        if (!contractorName) {
+          workDoneWarning.textContent = "Please select a contractor.";
+          return false;
+        }
+
+        // Group bill data by job number
+        const jobsMap = {};
+        for (const item of billData) {
+          // Ensure opsName is present and not empty
+          if (!item.opsName || !item.opsName.trim()) {
+            console.error('Missing opsName for item:', item);
+            workDoneWarning.textContent = `Error: Operation name is missing for job ${item.jobNumber}. Please clear bill data and re-add operations.`;
+            return false;
+          }
+          
+          if (!jobsMap[item.jobNumber]) {
+            jobsMap[item.jobNumber] = [];
+          }
+          
+          jobsMap[item.jobNumber].push({
+            opsName: item.opsName.trim(),
+            qtyBook: item.qtyBook,
+            rate: item.rate,
+            qtyCompleted: item.qtyCompleted,
+            totalValue: item.totalValue
+          });
+        }
+
+        // Convert to jobs array format
+        const jobs = Object.keys(jobsMap).map(jobNumber => ({
+          jobNumber: jobNumber,
+          ops: jobsMap[jobNumber]
+        }));
+
+        try {
+          const savedBill = await billsAPI.create(contractorName, jobs);
+          
+          // Update JobOpsMaster and Contractor_WD for each job in the bill
+          // Group bill data by job number for updates
+          const updatesByJob = {};
+          billData.forEach(item => {
+            if (!updatesByJob[item.jobNumber]) {
+              updatesByJob[item.jobNumber] = [];
+            }
+            updatesByJob[item.jobNumber].push({
+              opId: item.opId,
+              qtyToAdd: item.qtyCompleted
+            });
+          });
+
+          // Update each job's JobOpsMaster and Contractor_WD
+          const updatePromises = Object.keys(updatesByJob).map(jobNumber => {
+            return workAPI.updateJobOpsMaster(
+              currentContractor,
+              jobNumber,
+              updatesByJob[jobNumber]
+            );
+          });
+
+          await Promise.all(updatePromises);
+          
+          // Show alert with bill number
+          alert(`Bill has been saved!\nBill Number: ${savedBill.billNumber}`);
+          
+          workDoneWarning.textContent = "";
+          workDoneWarning.style.color = "#4ade80";
+          workDoneWarning.textContent = "Bill saved successfully!";
+          
+          // Clear all fields except contractor name
+          jobNumberSelect.value = "";
+          currentJobNumber = null;
+          currentOperationsData = [];
+          billData = [];
+          hasUnsavedBillData = false;
+          pendingQtyCache = {}; // Clear pending qty cache
+          
+          // Collapse panels
+          opsPendingPanel.classList.add("panel-collapsed");
+          billTablePanel.classList.add("panel-collapsed");
+          
+          // Clear tables
+          if (opsPendingBody) {
+            opsPendingBody.innerHTML = "";
+          }
+          if (billTableBody) {
+            billTableBody.innerHTML = "";
+          }
+          
+          // Hide buttons and disable Save Bill
+          if (saveBtn) {
+            saveBtn.style.display = "none";
+            saveBtn.disabled = true;
+          }
+          if (addBtn) {
+            addBtn.style.display = "none";
+          }
+          
+          // Refresh bill table (will be empty now)
+          refreshBillTable();
+          
+          setTimeout(() => {
+            workDoneWarning.textContent = "";
+            workDoneWarning.style.color = "";
+          }, 3000);
+          
+          return true;
+        } catch (error) {
+          workDoneWarning.textContent = error.message || "Failed to save bill.";
+          return false;
+        }
+      }
+
+      // Save Bill button click handler
+      if (saveBtn) {
+        saveBtn.addEventListener("click", async () => {
+          // Prevent click if button is disabled
+          if (saveBtn.disabled) {
+            return;
+          }
+          
+          if (billData.length === 0) {
+            workDoneWarning.textContent = "Please add operations to the bill first using the ADD button.";
+            return;
+          }
+          
+          await saveBill();
+        });
+      }
+
+      // Handle browser back/reload events
+      window.addEventListener('beforeunload', (e) => {
+        if (hasUnsavedBillData) {
+          e.preventDefault();
+          e.returnValue = 'You have unsaved bill data. Are you sure you want to leave?';
+          return e.returnValue;
+        }
+      });
+
+      // Handle home button click
+      if (homeBtn) {
+        homeBtn.addEventListener("click", async (e) => {
+          if (hasUnsavedBillData) {
+            e.preventDefault();
+            const proceed = await clearAllDataWithConfirmation();
+            if (proceed) {
+              window.location.href = homeBtn.href;
+            }
+          }
+        });
+      }
+    </script>
+  </body>
+  </html>
+
+

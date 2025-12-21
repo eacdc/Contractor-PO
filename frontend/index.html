@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contractor PO System</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-logo">CP</div>
+          <div class="brand-text">
+            <h1>Contractor PO System</h1>
+            <p>Manage jobs, operations, and billing with ease.</p>
+          </div>
+        </div>
+      </header>
+
+      <main class="app-main">
+        <section class="auth-wrapper">
+          <div class="auth-card">
+            <header class="auth-header">
+              <h2>Sign in</h2>
+              <p>Use your Contractor PO System credentials.</p>
+            </header>
+
+            <form
+              class="auth-form"
+              id="loginForm"
+            >
+              <div class="field">
+                <label for="userId">User ID</label>
+                <input
+                  id="userId"
+                  name="userId"
+                  type="text"
+                  autocomplete="username"
+                  required
+                />
+              </div>
+
+              <div class="field">
+                <label for="passkey">Passkey</label>
+                <input
+                  id="passkey"
+                  name="passkey"
+                  type="password"
+                  autocomplete="current-password"
+                  required
+                />
+              </div>
+
+              <p class="inline-warning" id="loginError" style="display: none;"></p>
+
+              <button class="primary-btn" type="submit">Login</button>
+            </form>
+          </div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <span>Contractor PO System</span>
+        <span class="divider">•</span>
+        <span>Secure access</span>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { authAPI } from './api.js';
+
+      const loginForm = document.getElementById('loginForm');
+      const loginError = document.getElementById('loginError');
+
+      loginForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const userId = document.getElementById('userId').value;
+        const passkey = document.getElementById('passkey').value;
+
+        loginError.style.display = 'none';
+        loginError.textContent = '';
+
+        try {
+          const response = await authAPI.login(userId, passkey);
+          
+          // Store token in localStorage
+          localStorage.setItem('token', response.token);
+          localStorage.setItem('user', JSON.stringify(response.user));
+          
+          // Redirect to home
+          window.location.href = 'home.html';
+        } catch (error) {
+          loginError.textContent = error.message || 'Login failed. Please check your credentials.';
+          loginError.style.display = 'block';
+        }
+      });
+    </script>
+  </body>
+</html>
+
+

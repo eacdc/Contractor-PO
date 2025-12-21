@@ -1,0 +1,923 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contractor PO System - Add Ops to Job</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-logo">CP</div>
+          <div class="brand-text">
+            <h1>Contractor PO System</h1>
+            <p>Add operations to a specific job.</p>
+          </div>
+        </div>
+        <a href="home.html" class="home-btn">Home</a>
+      </header>
+
+      <main class="app-main app-main--home">
+        <section class="intro">
+          <h2>Add Ops to Job</h2>
+          <p>Search a job by number, review previous ops, and add new ones.</p>
+        </section>
+
+        <!-- Job search -->
+        <section class="panel">
+          <form class="job-search" id="jobSearchForm">
+            <div class="field field--inline">
+              <label for="jobNumber">Job Number</label>
+              <div style="position: relative; display: inline-block; width: 100%;">
+                <input
+                  id="jobNumber"
+                  name="jobNumber"
+                  type="text"
+                  placeholder="Enter job number (4+ digits)"
+                  required
+                  autocomplete="off"
+                />
+                <div id="jobNumberDropdown" style="display: none; position: absolute; top: 100%; left: 0; right: 0; background: rgba(15, 23, 42, 0.98); border: 1px solid rgba(129, 140, 248, 0.5); border-radius: 0 0 10px 10px; max-height: 200px; overflow-y: auto; z-index: 1000; box-shadow: 0 8px 20px rgba(0,0,0,0.4);">
+                  <!-- Dropdown items will be inserted here -->
+                </div>
+              </div>
+            </div>
+            <button class="primary-btn" type="submit">Search</button>
+          </form>
+          <p class="inline-warning" id="jobSearchError" style="display: none;"></p>
+        </section>
+
+        <!-- Section 1: Job details -->
+        <section class="panel panel--collapsible">
+          <header class="panel-header">
+            <h3>Job Details</h3>
+          </header>
+          <div class="panel-body job-details-grid">
+            <div class="field">
+              <label for="clientName">Client Name</label>
+              <input id="clientName" name="clientName" type="text" readonly />
+            </div>
+            <div class="field">
+              <label for="jobTitle">Job Title</label>
+              <input id="jobTitle" name="jobTitle" type="text" readonly />
+            </div>
+            <div class="field">
+              <label for="qty">Qty</label>
+              <input id="qty" name="qty" type="number" readonly />
+            </div>
+            <div class="field">
+              <label for="productCat">Product Cat</label>
+              <input id="productCat" name="productCat" type="text" readonly />
+            </div>
+            <div class="field">
+              <label for="unitPrice">Unit Price</label>
+              <input id="unitPrice" name="unitPrice" type="text" readonly />
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 2: Previous ops -->
+        <section class="panel panel--collapsible">
+          <header class="panel-header">
+            <h3>Previous Ops</h3>
+          </header>
+          <div class="panel-body">
+            <div class="table-wrapper">
+              <table class="data-table" id="prevOpsTable">
+                <thead>
+                  <tr id="prevOpsHeader">
+                    <th>Ops</th>
+                    <th>Completed Qty</th>
+                  </tr>
+                </thead>
+                <tbody id="prevOpsBody">
+                  <tr>
+                    <td>-</td>
+                    <td>-</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 3: Add new ops -->
+        <section class="panel panel--collapsible" id="addNewOpsSection">
+          <header class="panel-header">
+            <h3>Add New Ops</h3>
+          </header>
+          <div class="panel-body">
+            <div class="table-wrapper">
+              <table class="data-table" id="addOpsTable">
+                <thead>
+                  <tr>
+                    <th>Ops Name</th>
+                    <th>Qty / Book</th>
+                    <th>Rate</th>
+                    <th>Rate / Book</th>
+                  </tr>
+                </thead>
+                <tbody id="addOpsBody">
+                  <tr class="ops-row">
+                    <td>
+                      <select name="opsName" class="ops-select">
+                        <option value="">Select ops</option>
+                      </select>
+                    </td>
+                    <td>
+                      <input type="text" name="qtyBook" />
+                    </td>
+                    <td>
+                      <input type="number" name="rate" value="1" readonly />
+                    </td>
+                    <td>
+                      <input type="number" name="rateBook" value="1" readonly />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="button-row">
+              <button class="secondary-btn" type="button" id="addOpsRowBtn">
+                Add
+              </button>
+              <button class="primary-btn primary-btn--sm" type="button" id="saveOpsBtn">
+                Save
+              </button>
+            </div>
+
+            <p class="inline-warning" id="addOpsWarning"></p>
+          </div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <span>Contractor PO System</span>
+        <span class="divider">•</span>
+        <span>Add Ops to Job</span>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { jobsAPI, operationsAPI } from './api.js';
+
+      let currentJobId = null;
+      let allOperations = [];
+      let alreadyAddedOpIds = new Set(); // Track ops already added for current job
+      let hasSearchedJob = false; // Track if a job has been searched
+
+      // Collapsible panels
+      document.querySelectorAll(".panel--collapsible .panel-header").forEach((header) => {
+        header.addEventListener("click", () => {
+          const panel = header.closest(".panel--collapsible");
+          panel?.classList.toggle("panel-collapsed");
+        });
+      });
+
+      // Helper: Get currently selected opIds from "Add New Ops" rows
+      function getCurrentlySelectedOpIds() {
+        const selected = new Set();
+        const rows = document.querySelectorAll('#addOpsBody .ops-row');
+        rows.forEach(row => {
+          const select = row.querySelector('select[name="opsName"]');
+          if (select && select.value) {
+            selected.add(select.value);
+          }
+        });
+        return selected;
+      }
+
+      // Helper: Populate a dropdown with available operations (excluding already added)
+      function populateDropdown(select, excludeOpId = null) {
+        if (!select) return;
+        
+        const currentValue = select.value;
+        const currentlySelected = getCurrentlySelectedOpIds();
+        
+        // If this select has a value, don't exclude it from itself
+        if (currentValue && excludeOpId === currentValue) {
+          excludeOpId = null;
+        }
+        
+        select.innerHTML = '<option value="">Select ops</option>';
+        
+        allOperations.forEach(op => {
+          // Skip if already added for this job (from previousOps)
+          if (alreadyAddedOpIds.has(op._id)) {
+            return;
+          }
+          
+          // Skip if currently selected in another row (unless it's this row's current selection)
+          if (currentlySelected.has(op._id) && op._id !== currentValue) {
+            return;
+          }
+          
+          // Skip if explicitly excluded
+          if (excludeOpId && op._id === excludeOpId) {
+            return;
+          }
+          
+          const option = document.createElement('option');
+          option.value = op._id;
+          option.textContent = op.opsName;
+          select.appendChild(option);
+        });
+        
+        // Restore previous selection if it's still valid
+        if (currentValue) {
+          const optionExists = Array.from(select.options).some(opt => opt.value === currentValue);
+          if (optionExists) {
+            select.value = currentValue;
+          }
+        }
+      }
+
+      // Load operations for dropdown
+      async function loadOperations() {
+        try {
+          allOperations = await operationsAPI.getAll();
+          refreshAllDropdowns();
+          updateAddButtonVisibility();
+        } catch (error) {
+          console.error('Error loading operations:', error);
+        }
+      }
+
+      // Refresh all dropdowns in "Add New Ops" section
+      function refreshAllDropdowns() {
+        const selects = document.querySelectorAll('#addOpsBody .ops-select');
+        selects.forEach(select => {
+          populateDropdown(select);
+        });
+        updateAddButtonVisibility();
+      }
+
+      // Check if there are any available operations left to add
+      function getAvailableOperationsCount() {
+        if (!allOperations || allOperations.length === 0) {
+          return 0;
+        }
+        
+        const currentlySelected = getCurrentlySelectedOpIds();
+        let availableCount = 0;
+        
+        allOperations.forEach(op => {
+          // Skip if already added for this job
+          if (alreadyAddedOpIds.has(op._id)) {
+            return;
+          }
+          // Skip if currently selected in a row
+          if (currentlySelected.has(op._id)) {
+            return;
+          }
+          availableCount++;
+        });
+        
+        return availableCount;
+      }
+
+      // Update visibility of Add button and Add New Ops section
+      function updateAddButtonVisibility() {
+        const addBtn = document.getElementById('addOpsRowBtn');
+        const addNewOpsSection = document.getElementById('addNewOpsSection');
+        const availableCount = getAvailableOperationsCount();
+        
+        // Hide Add button if no operations available (only if we have operations loaded)
+        if (addBtn) {
+          if (allOperations.length > 0 && availableCount === 0) {
+            addBtn.style.display = 'none';
+          } else {
+            addBtn.style.display = '';
+          }
+        }
+        
+        // Hide entire section only if:
+        // 1. A job has been searched (hasSearchedJob === true)
+        // 2. AND no operations available
+        // 3. AND no rows with selected ops
+        if (addNewOpsSection) {
+          const rows = document.querySelectorAll('#addOpsBody .ops-row');
+          const hasSelectedOps = Array.from(rows).some(row => {
+            const select = row.querySelector('select[name="opsName"]');
+            return select && select.value;
+          });
+          
+          // Only hide if job has been searched AND no available ops AND no selected ops
+          if (hasSearchedJob && allOperations.length > 0 && availableCount === 0 && !hasSelectedOps) {
+            addNewOpsSection.style.display = 'none';
+          } else {
+            addNewOpsSection.style.display = '';
+          }
+        }
+      }
+
+      // Helper: validate qty/book based on operation type
+      function validateQtyBook(qtyValue, operation) {
+        if (!operation) return { valid: false, message: 'Operation not found' };
+        
+        const qty = parseFloat(qtyValue);
+        
+        // Check if it's a valid number
+        if (isNaN(qty) || qtyValue.trim() === '') {
+          return { valid: false, message: `Qty / Book must be a valid number for operation "${operation.opsName}"` };
+        }
+        
+        if (operation.type === '1:1') {
+          if (qty !== 1) {
+            return { valid: false, message: `Qty / Book must be exactly 1 for operation "${operation.opsName}"` };
+          }
+        } else if (operation.type === '1*x') {
+          // Must be integer >= 1
+          if (!Number.isInteger(qty)) {
+            return { valid: false, message: `Qty / Book must be an integer for operation "${operation.opsName}"` };
+          }
+          if (qty < 1) {
+            return { valid: false, message: `Qty / Book must be >= 1 for operation "${operation.opsName}"` };
+          }
+        } else if (operation.type === '1/x') {
+          // Must be > 0 and <= 1
+          if (qty <= 0) {
+            return { valid: false, message: `Qty / Book must be > 0 for operation "${operation.opsName}"` };
+          }
+          if (qty > 1) {
+            return { valid: false, message: `Qty / Book must be <= 1 for operation "${operation.opsName}"` };
+          }
+        }
+        
+        return { valid: true };
+      }
+
+      // Helper: update rate and rate/book for a given row
+      function updateRowPricing(row) {
+        if (!row) return;
+
+        const select = row.querySelector('select[name="opsName"]');
+        const qtyInput = row.querySelector('input[name="qtyBook"]');
+        const rateInput = row.querySelector('input[name="rate"]');
+        const rateBookInput = row.querySelector('input[name="rateBook"]');
+
+        if (!select || !rateInput || !rateBookInput) return;
+
+        // Ensure rate fields are not editable by user
+        rateInput.readOnly = true;
+        rateBookInput.readOnly = true;
+
+        const opId = select.value;
+        const operation = allOperations.find(op => op._id === opId);
+
+        // Default ratePerUnit to 0 if not found
+        const ratePerUnit = operation ? Number(operation.ratePerUnit || 0) : 0;
+
+        // Configure qty/book behavior based on operation type
+        if (qtyInput) {
+          qtyInput.readOnly = false;
+
+          if (operation) {
+            if (operation.type === '1:1') {
+              // Fixed 1, not editable
+              qtyInput.value = 1;
+              qtyInput.readOnly = true;
+            } else if (operation.type === '1*x') {
+              // User can type anything, validation on save
+              // Default to 1 if empty
+              if (!qtyInput.value || qtyInput.value.trim() === '') {
+                qtyInput.value = '1';
+              }
+            } else if (operation.type === '1/x') {
+              // User can type anything, validation on save
+              // Default to 0.5 if empty
+              if (!qtyInput.value || qtyInput.value.trim() === '') {
+                qtyInput.value = '0.5';
+              }
+            }
+          }
+        }
+
+        rateInput.value = ratePerUnit;
+
+        const qty = qtyInput && qtyInput.value ? Number(qtyInput.value) : 0;
+        rateBookInput.value = qty * ratePerUnit;
+      }
+
+      // Job search
+      const jobSearchForm = document.getElementById('jobSearchForm');
+      const jobSearchError = document.getElementById('jobSearchError');
+      const jobNumberInput = document.getElementById('jobNumber');
+      const jobNumberDropdown = document.getElementById('jobNumberDropdown');
+      let searchTimeout = null;
+
+      // Handle job number input - search when 4+ digits entered
+      jobNumberInput.addEventListener('input', async (e) => {
+        const value = e.target.value.trim();
+        
+        // Clear previous timeout
+        if (searchTimeout) {
+          clearTimeout(searchTimeout);
+        }
+
+        // Hide dropdown if less than 4 characters
+        if (value.length < 4) {
+          jobNumberDropdown.style.display = 'none';
+          return;
+        }
+
+        // Debounce search (wait 300ms after user stops typing)
+        searchTimeout = setTimeout(async () => {
+          try {
+            console.log('🔍 [FRONTEND] Searching job numbers for:', value);
+            const jobNumbers = await jobsAPI.searchJobNumbers(value);
+            console.log('🔍 [FRONTEND] Received jobNumbers:', jobNumbers);
+            console.log('🔍 [FRONTEND] jobNumbers type:', typeof jobNumbers, 'isArray:', Array.isArray(jobNumbers));
+            
+            if (jobNumbers && jobNumbers.length > 0) {
+              // Populate dropdown
+              jobNumberDropdown.innerHTML = '';
+              jobNumbers.forEach(jobNum => {
+                const item = document.createElement('div');
+                item.style.padding = '10px 14px';
+                item.style.cursor = 'pointer';
+                item.style.borderBottom = '1px solid rgba(55, 65, 81, 0.5)';
+                item.style.color = '#f9fafb';
+                item.style.fontSize = '0.9rem';
+                item.textContent = jobNum;
+                item.addEventListener('mouseenter', () => {
+                  item.style.backgroundColor = 'rgba(79, 70, 229, 0.3)';
+                });
+                item.addEventListener('mouseleave', () => {
+                  item.style.backgroundColor = 'transparent';
+                });
+                item.addEventListener('click', () => {
+                  jobNumberInput.value = jobNum;
+                  jobNumberDropdown.style.display = 'none';
+                  // Trigger job details fetch
+                  fetchJobDetails(jobNum);
+                });
+                jobNumberDropdown.appendChild(item);
+              });
+              jobNumberDropdown.style.display = 'block';
+              console.log('🔍 [FRONTEND] Dropdown populated with', jobNumbers.length, 'items');
+            } else {
+              console.log('🔍 [FRONTEND] No job numbers found or empty array');
+              jobNumberDropdown.style.display = 'none';
+            }
+          } catch (error) {
+            console.error('❌ [FRONTEND] Error searching job numbers:', error);
+            jobNumberDropdown.style.display = 'none';
+          }
+        }, 300);
+      });
+
+      // Hide dropdown when clicking outside
+      document.addEventListener('click', (e) => {
+        const jobSearchPanel = jobSearchForm.closest('.panel');
+        if (jobSearchPanel && !jobSearchPanel.contains(e.target)) {
+          jobNumberDropdown.style.display = 'none';
+        }
+      });
+
+      // Function to fetch job details from MSSQL
+      async function fetchJobDetails(jobNumber) {
+        try {
+          const jobDetails = await jobsAPI.getJobDetails(jobNumber);
+          
+          // Populate job details section
+          document.getElementById('clientName').value = jobDetails.clientName || '';
+          document.getElementById('jobTitle').value = jobDetails.jobTitle || '';
+          document.getElementById('qty').value = jobDetails.qty || 0;
+          document.getElementById('productCat').value = jobDetails.productCat || '';
+          document.getElementById('unitPrice').value = (jobDetails.unitPrice || 0).toFixed(2);
+        } catch (error) {
+          console.error('Error fetching job details:', error);
+          // Fallback to default values if error
+          document.getElementById('clientName').value = '';
+          document.getElementById('jobTitle').value = '';
+          document.getElementById('qty').value = 0;
+          document.getElementById('productCat').value = '';
+          document.getElementById('unitPrice').value = '0.00';
+        }
+      }
+
+      jobSearchForm.addEventListener('submit', async (e) => {
+        e.preventDefault();
+        const jobNumber = jobNumberInput.value.trim();
+        jobSearchError.style.display = 'none';
+        jobNumberDropdown.style.display = 'none';
+
+        if (!jobNumber) {
+          jobSearchError.textContent = 'Please enter a job number.';
+          jobSearchError.style.display = 'block';
+          return;
+        }
+
+        try {
+          // First fetch job details from MSSQL
+          await fetchJobDetails(jobNumber);
+
+          // Then search for previous ops from JobopsMaster
+          const result = await jobsAPI.search(jobNumber);
+          // Not using Job collection anymore, so currentJobId not needed
+          currentJobId = null;
+          
+          // Mark that a job has been searched
+          hasSearchedJob = true;
+
+          // Populate previous ops from Contractor_WD summary (if available)
+          const headerRow = document.getElementById('prevOpsHeader');
+          const prevOpsBody = document.getElementById('prevOpsBody');
+
+          headerRow.innerHTML = '';
+          prevOpsBody.innerHTML = '';
+
+          const previousOps = result.previousOps;
+
+          // Track which operations are already added for this job
+          alreadyAddedOpIds.clear();
+          if (previousOps && Array.isArray(previousOps.operations)) {
+            previousOps.operations.forEach(op => {
+              if (op.opsId) {
+                alreadyAddedOpIds.add(op.opsId);
+              }
+            });
+          }
+
+          // Refresh all dropdowns to exclude already-added operations
+          refreshAllDropdowns();
+          // Update visibility of Add button and section
+          updateAddButtonVisibility();
+
+          if (
+            previousOps &&
+            Array.isArray(previousOps.operations) &&
+            previousOps.operations.length > 0
+          ) {
+            // Header: Ops + one column per contractor (if any)
+            const opsTh = document.createElement('th');
+            opsTh.textContent = 'Ops';
+            headerRow.appendChild(opsTh);
+
+            if (
+              previousOps.contractors &&
+              Array.isArray(previousOps.contractors) &&
+              previousOps.contractors.length > 0
+            ) {
+              // Show one column per contractor
+              previousOps.contractors.forEach(c => {
+                const th = document.createElement('th');
+                th.textContent = `${c.name} (Completed Qty)`;
+                headerRow.appendChild(th);
+              });
+
+              // Add Pending column header
+              const pendingTh = document.createElement('th');
+              pendingTh.textContent = 'Pending';
+              headerRow.appendChild(pendingTh);
+
+              // Rows: each op, with qty per contractor + pending
+              previousOps.operations.forEach(op => {
+                const row = document.createElement('tr');
+                let cellsHtml = `<td>${op.opsName}</td>`;
+
+                previousOps.contractors.forEach(c => {
+                  const qty =
+                    (op.quantitiesByContractor &&
+                      op.quantitiesByContractor[c.contractorId]) ||
+                    0;
+                  cellsHtml += `<td>${qty}</td>`;
+                });
+
+                // Add pending quantity
+                const pending = op.pending !== undefined ? op.pending : (op.totalOpsQty || 0);
+                cellsHtml += `<td>${pending}</td>`;
+
+                row.innerHTML = cellsHtml;
+                prevOpsBody.appendChild(row);
+              });
+            } else {
+              // Operations exist but no contractors have done work yet
+              const completedTh = document.createElement('th');
+              completedTh.textContent = 'Completed Qty';
+              headerRow.appendChild(completedTh);
+              
+              const pendingTh = document.createElement('th');
+              pendingTh.textContent = 'Pending';
+              headerRow.appendChild(pendingTh);
+
+              previousOps.operations.forEach(op => {
+                const row = document.createElement('tr');
+                const pending = op.pending !== undefined ? op.pending : (op.totalOpsQty || 0);
+                row.innerHTML = `<td>${op.opsName}</td><td>0</td><td>${pending}</td>`;
+                prevOpsBody.appendChild(row);
+              });
+            }
+          } else {
+            // No previous work: show basic header and keep body empty
+            headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th><th>Pending</th>';
+            prevOpsBody.innerHTML = '';
+          }
+
+          // Do not show any error if request succeeded
+          jobSearchError.textContent = '';
+          jobSearchError.style.display = 'none';
+        } catch (error) {
+          // Try to fetch job details from MSSQL even if previous ops search failed
+          try {
+            await fetchJobDetails(jobNumber);
+          } catch (detailsError) {
+            console.error('Error fetching job details:', detailsError);
+            // Clear job details if fetch fails
+            document.getElementById('clientName').value = '';
+            document.getElementById('jobTitle').value = '';
+            document.getElementById('qty').value = 0;
+            document.getElementById('productCat').value = '';
+            document.getElementById('unitPrice').value = 0;
+          }
+
+          // For previous ops, when job is not found we reset to
+          // a table with one row saying "No previous ops found".
+          const headerRow = document.getElementById('prevOpsHeader');
+          const prevOpsBody = document.getElementById('prevOpsBody');
+          headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th><th>Pending</th>';
+          prevOpsBody.innerHTML = '<tr><td colspan="3">No previous ops found</td></tr>';
+
+          // Mark that a job has been searched (even if not found)
+          hasSearchedJob = true;
+          
+          // Reset already-added operations (no previous ops for this job)
+          alreadyAddedOpIds.clear();
+          refreshAllDropdowns();
+          // Update visibility of Add button and section
+          updateAddButtonVisibility();
+
+          // Do not show "job not found" error in this case
+          jobSearchError.textContent = '';
+          jobSearchError.style.display = 'none';
+        }
+      });
+
+      // Add new ops row
+      const addRowBtn = document.getElementById("addOpsRowBtn");
+      const opsBody = document.getElementById("addOpsBody");
+      const addOpsWarning = document.getElementById("addOpsWarning");
+
+      if (addRowBtn && opsBody) {
+        addRowBtn.addEventListener("click", async () => {
+          const rows = opsBody.querySelectorAll(".ops-row");
+          const lastRow = rows[rows.length - 1];
+          if (!lastRow) return;
+
+          const lastSelect = lastRow.querySelector('select[name="opsName"]');
+          const lastQty = lastRow.querySelector('input[name="qtyBook"]');
+          const lastRate = lastRow.querySelector('input[name="rate"]');
+          const lastRateBook = lastRow.querySelector('input[name="rateBook"]');
+
+          const isFilled =
+            lastSelect &&
+            lastSelect.value.trim() !== "" &&
+            lastQty &&
+            lastQty.value.trim() !== "" &&
+            lastRate &&
+            lastRate.value.trim() !== "" &&
+            lastRateBook &&
+            lastRateBook.value.trim() !== "";
+
+          if (!isFilled) {
+            if (addOpsWarning) {
+              addOpsWarning.textContent = "Please fill Ops Name, Qty / Book, Rate, and Rate / Book before adding a new row.";
+            }
+            return;
+          }
+
+          if (addOpsWarning) {
+            addOpsWarning.textContent = "";
+          }
+
+          const templateRow = rows[0];
+          if (!templateRow) return;
+
+          const clone = templateRow.cloneNode(true);
+
+          // Reset values in cloned row
+          const select = clone.querySelector('select[name="opsName"]');
+          const qtyInput = clone.querySelector('input[name="qtyBook"]');
+          const rateInput = clone.querySelector('input[name="rate"]');
+          const rateBookInput = clone.querySelector('input[name="rateBook"]');
+
+          if (select) {
+            populateDropdown(select);
+            select.value = "";
+          }
+          if (qtyInput) qtyInput.value = "";
+          if (rateInput) {
+            rateInput.value = "1";
+            rateInput.readOnly = true;
+          }
+          if (rateBookInput) {
+            rateBookInput.value = "1";
+            rateBookInput.readOnly = true;
+          }
+
+          opsBody.appendChild(clone);
+          
+          // Update visibility after adding new row
+          updateAddButtonVisibility();
+        });
+      }
+
+      // Event delegation: when ops is selected, auto-populate rate and rate/book
+      if (opsBody) {
+        opsBody.addEventListener('change', (e) => {
+          const target = e.target;
+          if (target && target.name === 'opsName') {
+            const row = target.closest('.ops-row');
+            const previousValue = target.dataset.previousValue || '';
+            const currentValue = target.value;
+            
+            // Store current value for next change
+            target.dataset.previousValue = currentValue;
+            
+            if (currentValue) {
+              // An operation was selected
+              updateRowPricing(row);
+              
+              // Refresh all other dropdowns to remove the selected operation
+              const allSelects = opsBody.querySelectorAll('.ops-select');
+              allSelects.forEach(select => {
+                if (select !== target) {
+                  populateDropdown(select, currentValue);
+                }
+              });
+            } else if (previousValue) {
+              // Selection was cleared - refresh all dropdowns to add it back
+              refreshAllDropdowns();
+            }
+            
+            // Update visibility after selection change
+            updateAddButtonVisibility();
+          }
+        });
+
+        // When qty / book changes, recompute rate / book using current rate
+        opsBody.addEventListener('input', (e) => {
+          const target = e.target;
+          if (target && target.name === 'qtyBook') {
+            const row = target.closest('.ops-row');
+            if (!row) return;
+
+            const qtyInput = row.querySelector('input[name="qtyBook"]');
+            const rateInput = row.querySelector('input[name="rate"]');
+            const rateBookInput = row.querySelector('input[name="rateBook"]');
+
+            if (!qtyInput || !rateInput || !rateBookInput) return;
+
+            const select = row.querySelector('select[name="opsName"]');
+            const opId = select ? select.value : null;
+            const operation = opId
+              ? allOperations.find(op => op._id === opId)
+              : null;
+
+            // Calculate rate/book based on current qty/book value (user can type anything)
+            const qty = qtyInput.value ? parseFloat(qtyInput.value) : 0;
+            const rate = rateInput.value ? parseFloat(rateInput.value) : 0;
+            
+            // Only update rate/book if qty is valid number
+            if (!isNaN(qty) && !isNaN(rate)) {
+              rateBookInput.value = (qty * rate).toFixed(2);
+            } else {
+              rateBookInput.value = '';
+            }
+          }
+        });
+      }
+
+      // Save operations
+      const saveBtn = document.getElementById("saveOpsBtn");
+      if (saveBtn) {
+        saveBtn.addEventListener("click", async () => {
+          const jobNumberInput = document.getElementById('jobNumber');
+          const jobNumber = jobNumberInput ? jobNumberInput.value.trim() : '';
+
+          if (!jobNumber) {
+            addOpsWarning.textContent = "Please search for a job first.";
+            return;
+          }
+
+          const rows = opsBody.querySelectorAll(".ops-row");
+          const operations = [];
+
+          // Validate all rows before processing
+          for (const row of rows) {
+            const select = row.querySelector('select[name="opsName"]');
+            const qtyInput = row.querySelector('input[name="qtyBook"]');
+            const rateInput = row.querySelector('input[name="rate"]');
+            const rateBookInput = row.querySelector('input[name="rateBook"]');
+
+            if (select?.value && qtyInput?.value && rateInput?.value && rateBookInput?.value) {
+              // Find the operation to validate qty/book
+              const operation = allOperations.find(op => op._id === select.value);
+              
+              // Validate qty/book based on operation type
+              const validation = validateQtyBook(qtyInput.value, operation);
+              if (!validation.valid) {
+                addOpsWarning.textContent = validation.message;
+                return; // Stop saving if validation fails
+              }
+              
+              operations.push({
+                operationId: select.value,
+                qtyPerBook: parseFloat(qtyInput.value),
+                rate: parseFloat(rateInput.value),
+                ratePerBook: parseFloat(rateBookInput.value)
+              });
+            }
+          }
+
+          if (operations.length === 0) {
+            addOpsWarning.textContent = "Please add at least one operation.";
+            return;
+          }
+
+          // Collect current job details from the UI so that if the job
+          // does not yet exist, the backend can create it.
+          const clientNameInput = document.getElementById('clientName');
+          const jobTitleInput = document.getElementById('jobTitle');
+          const qtyInput = document.getElementById('qty');
+          const productCatInput = document.getElementById('productCat');
+          const unitPriceInput = document.getElementById('unitPrice');
+
+          const extraJobData = {
+            clientName: clientNameInput ? clientNameInput.value : '',
+            jobTitle: jobTitleInput ? jobTitleInput.value : '',
+            qty: qtyInput && qtyInput.value ? Number(qtyInput.value) : 0,
+            productCat: productCatInput ? productCatInput.value : '',
+            unitPrice: unitPriceInput && unitPriceInput.value ? Number(unitPriceInput.value) : 0
+          };
+
+          try {
+            await jobsAPI.saveJobOpsMaster(jobNumber, operations, extraJobData);
+            addOpsWarning.textContent = "";
+            alert('Operations saved successfully!');
+            
+            // After successful save, clear the entire form/page state
+            if (jobNumberInput) jobNumberInput.value = '';
+
+            // Clear job details
+            if (clientNameInput) clientNameInput.value = '';
+            if (jobTitleInput) jobTitleInput.value = '';
+            if (qtyInput) qtyInput.value = '';
+            if (productCatInput) productCatInput.value = '';
+            if (unitPriceInput) unitPriceInput.value = '';
+
+            // Reset Previous Ops table
+            const headerRow = document.getElementById('prevOpsHeader');
+            const prevOpsBody = document.getElementById('prevOpsBody');
+            if (headerRow) headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th>';
+            if (prevOpsBody) prevOpsBody.innerHTML = '';
+
+            // Reset already-added operations tracking
+            alreadyAddedOpIds.clear();
+            // Reset job search flag
+            hasSearchedJob = false;
+
+            // Reset Add New Ops table to a single empty row
+            if (opsBody) {
+              opsBody.innerHTML = '';
+              const baseRow = document.createElement('tr');
+              baseRow.classList.add('ops-row');
+              baseRow.innerHTML = `
+                <td>
+                  <select name="opsName" class="ops-select">
+                    <option value="">Select ops</option>
+                  </select>
+                </td>
+                <td>
+                  <input type="text" name="qtyBook" />
+                </td>
+                <td>
+                  <input type="number" name="rate" value="1" readonly />
+                </td>
+                <td>
+                  <input type="number" name="rateBook" value="1" readonly />
+                </td>
+              `;
+              opsBody.appendChild(baseRow);
+              // Re-populate the ops dropdown in the new row
+              loadOperations();
+              // Update visibility after reset
+              updateAddButtonVisibility();
+            }
+          } catch (error) {
+            addOpsWarning.textContent = error.message || 'Failed to save operations.';
+          }
+        });
+      }
+
+      // Load operations on page load
+      loadOperations();
+    </script>
+  </body>
+  </html>
+
+

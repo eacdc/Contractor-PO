@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contractor PO System - Add New Ops</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-logo">CP</div>
+          <div class="brand-text">
+            <h1>Contractor PO System</h1>
+            <p>Create new standard operations.</p>
+          </div>
+        </div>
+        <a href="home.html" class="home-btn">Home</a>
+      </header>
+
+      <main class="app-main app-main--home">
+        <section class="intro">
+          <h2>Add New Ops</h2>
+          <p>Search existing operations or define new ones.</p>
+        </section>
+
+        <!-- Search Ops -->
+        <section class="panel">
+          <form class="job-search" action="#" method="get" id="opsSearchForm">
+            <div class="field field--inline">
+              <label for="opsSearch">Ops Name</label>
+              <input
+                id="opsSearch"
+                name="opsSearch"
+                type="text"
+                placeholder="Start typing to see suggestions"
+                autocomplete="off"
+              />
+            </div>
+
+            <button class="primary-btn" type="submit">Search</button>
+          </form>
+          <p class="inline-info" id="opsSearchInfo">
+            Type to see suggestions. If nothing appears, this operation does not exist in the
+            current list.
+          </p>
+        </section>
+
+        <!-- Add Operations -->
+        <section class="panel">
+          <header class="panel-header">
+            <h3>Add Operations</h3>
+          </header>
+          <div class="panel-body">
+            <div class="add-ops-inline">
+              <div class="field">
+                <label for="newOpsName">Ops Name</label>
+                <input
+                  id="newOpsName"
+                  name="newOpsName"
+                  type="text"
+                  placeholder="Enter operation name"
+                />
+              </div>
+              <div class="field">
+                <label for="newOpsType">Type</label>
+                <select id="newOpsType" name="newOpsType">
+                  <option value="">Select type</option>
+                  <option value="1:1">1:1</option>
+                  <option value="1*x">1*x</option>
+                  <option value="1/x">1/x</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="newOpsRatePerUnit">Rate/Unit</label>
+                <input
+                  id="newOpsRatePerUnit"
+                  name="newOpsRatePerUnit"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  required
+                  placeholder="Enter rate per unit"
+                />
+              </div>
+              <div class="add-ops-actions">
+                <button class="primary-btn primary-btn--sm" type="button" id="addNewOpsBtn">
+                  Add
+                </button>
+              </div>
+            </div>
+
+            <p class="inline-warning" id="addNewOpsWarning"></p>
+
+            <div class="table-wrapper" id="addedOpsWrapper" style="display: none;">
+              <table class="data-table" id="addedOpsTable">
+                <thead>
+                  <tr>
+                    <th>Ops Name</th>
+                    <th>Type</th>
+                    <th>Rate/Unit</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <span>Contractor PO System</span>
+        <span class="divider">•</span>
+        <span>Add New Ops</span>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { operationsAPI } from './api.js';
+
+      const opsSearchInput = document.getElementById("opsSearch");
+      const opsSearchInfo = document.getElementById("opsSearchInfo");
+      const opsSearchForm = document.getElementById("opsSearchForm");
+
+      // Search operations
+      if (opsSearchInput && opsSearchInfo) {
+        let searchTimeout;
+        opsSearchInput.addEventListener("input", async () => {
+          clearTimeout(searchTimeout);
+          const value = opsSearchInput.value.trim();
+          
+          if (!value) {
+            opsSearchInfo.textContent =
+              "Type to see suggestions. If nothing appears, this operation does not exist in the current list.";
+            return;
+          }
+
+          searchTimeout = setTimeout(async () => {
+            try {
+              const operations = await operationsAPI.getAll(value);
+              if (operations.length === 0) {
+            opsSearchInfo.textContent =
+              "No suggestions found. This operation is not in the existing list/database.";
+          } else {
+                const names = operations.map(op => op.opsName);
+                opsSearchInfo.textContent = "Suggestions: " + names.join(", ");
+          }
+            } catch (error) {
+              opsSearchInfo.textContent = "Error searching operations.";
+            }
+          }, 300);
+        });
+      }
+
+      // Add new operation
+      const newOpsNameInput = document.getElementById("newOpsName");
+      const newOpsTypeSelect = document.getElementById("newOpsType");
+      const newOpsRatePerUnitInput = document.getElementById("newOpsRatePerUnit");
+      const addNewOpsBtn = document.getElementById("addNewOpsBtn");
+      const addNewOpsWarning = document.getElementById("addNewOpsWarning");
+      const addedOpsWrapper = document.getElementById("addedOpsWrapper");
+      const addedOpsTable = document.getElementById("addedOpsTable");
+      const addedOpsBody = addedOpsTable?.querySelector('tbody');
+
+      if (
+        newOpsNameInput &&
+        newOpsTypeSelect &&
+        newOpsRatePerUnitInput &&
+        addNewOpsBtn &&
+        addNewOpsWarning
+      ) {
+        addNewOpsBtn.addEventListener("click", async () => {
+          const name = newOpsNameInput.value.trim();
+          const type = newOpsTypeSelect.value;
+          const ratePerUnitValue = newOpsRatePerUnitInput.value.trim();
+
+          // Validate required fields
+          if (!name || !type || !ratePerUnitValue || ratePerUnitValue === "") {
+            addNewOpsWarning.textContent = "Please fill Ops Name, select a Type, and enter a valid Rate/Unit before adding.";
+            addNewOpsWarning.style.color = "#ef4444";
+            return;
+          }
+
+          const ratePerUnit = parseFloat(ratePerUnitValue);
+          if (isNaN(ratePerUnit) || ratePerUnit < 0) {
+            addNewOpsWarning.textContent = "Rate/Unit must be a valid number greater than or equal to 0.";
+            addNewOpsWarning.style.color = "#ef4444";
+            return;
+          }
+
+          try {
+            const operation = await operationsAPI.create(name, type, ratePerUnit);
+          addNewOpsWarning.textContent = "";
+            addNewOpsWarning.style.color = "#4ade80";
+            addNewOpsWarning.textContent = "Operation added successfully!";
+
+            // Add to table
+            if (addedOpsBody && addedOpsWrapper) {
+              addedOpsWrapper.style.display = "block";
+              const row = document.createElement("tr");
+              row.innerHTML = `
+                <td>${operation.opsName}</td>
+                <td>${operation.type}</td>
+                <td>${operation.ratePerUnit !== null && operation.ratePerUnit !== undefined ? operation.ratePerUnit : '-'}</td>
+              `;
+              addedOpsBody.appendChild(row);
+            }
+
+            // Clear inputs
+          newOpsNameInput.value = "";
+          newOpsTypeSelect.value = "";
+          newOpsRatePerUnitInput.value = "";
+
+            setTimeout(() => {
+              addNewOpsWarning.textContent = "";
+            }, 3000);
+          } catch (error) {
+            addNewOpsWarning.style.color = "#ef4444";
+            addNewOpsWarning.textContent = error.message || "Failed to add operation.";
+          }
+        });
+      }
+
+      // Load existing operations on page load
+      async function loadExistingOperations() {
+        try {
+          const operations = await operationsAPI.getAll();
+          if (operations.length > 0 && addedOpsBody && addedOpsWrapper) {
+            addedOpsWrapper.style.display = "block";
+            operations.forEach(op => {
+              const row = document.createElement("tr");
+              row.innerHTML = `
+                <td>${op.opsName}</td>
+                <td>${op.type}</td>
+                <td>${op.ratePerUnit !== null && op.ratePerUnit !== undefined ? op.ratePerUnit : '-'}</td>
+              `;
+              addedOpsBody.appendChild(row);
+            });
+          }
+        } catch (error) {
+          console.error('Error loading operations:', error);
+        }
+      }
+
+      loadExistingOperations();
+    </script>
+  </body>
+  </html>
+
+
