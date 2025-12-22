@@ -49,7 +49,7 @@ export const authAPI = {
 // Jobs API
 export const jobsAPI = {
   getAll: () => apiCall('/jobs'),
-  search: (jobNumber) => apiCall(`/jobs/search/${jobNumber}`),
+  search: (jobNumber) => apiCall(`/jobs/search/${encodeURIComponent(jobNumber)}`),
   getById: (id) => apiCall(`/jobs/${id}`),
   create: (jobData) => apiCall('/jobs', {
     method: 'POST',
@@ -68,9 +68,9 @@ export const jobsAPI = {
   // Get all job numbers from JobopsMaster
   getJobNumbers: () => apiCall('/jobs/jobopsmaster/jobnumbers'),
   // Search job numbers from MSSQL (4+ digits)
-  searchJobNumbers: (jobNumberPart) => apiCall(`/jobs/search-numbers/${jobNumberPart}`),
+  searchJobNumbers: (jobNumberPart) => apiCall(`/jobs/search-numbers/${encodeURIComponent(jobNumberPart)}`),
   // Get job details from MSSQL
-  getJobDetails: (jobNumber) => apiCall(`/jobs/details/${jobNumber}`)
+  getJobDetails: (jobNumber) => apiCall(`/jobs/details/${encodeURIComponent(jobNumber)}`)
 };
 
 // Operations API
@@ -95,8 +95,8 @@ export const operationsAPI = {
 
 // Work API
 export const workAPI = {
-  getPending: (contractor, jobNumber) => apiCall(`/work/pending/${contractor}/${jobNumber}`),
-  getPendingFromJobOpsMaster: (jobNumber) => apiCall(`/work/pending/jobopsmaster/${jobNumber}`),
+  getPending: (contractor, jobNumber) => apiCall(`/work/pending/${encodeURIComponent(contractor)}/${encodeURIComponent(jobNumber)}`),
+  getPendingFromJobOpsMaster: (jobNumber) => apiCall(`/work/pending/jobopsmaster/${encodeURIComponent(jobNumber)}`),
   update: (contractor, jobNumber, operations) => apiCall('/work/update', {
     method: 'POST',
     body: { contractor, jobNumber, operations }
