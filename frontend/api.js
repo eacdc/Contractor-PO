@@ -1,7 +1,7 @@
 // API Configuration
 // Automatically detect environment: use production URL if not on localhost
 const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:3001/api'
+  ? 'http://localhost:3000/api'
   : 'https://cdcapi.onrender.com/api';
 
 // Helper function for API calls
@@ -113,6 +113,13 @@ export const contractorsAPI = {
   create: (name) => apiCall('/contractors', {
     method: 'POST',
     body: { name }
+  }),
+  update: (id, name) => apiCall(`/contractors/${id}`, {
+    method: 'PUT',
+    body: { name }
+  }),
+  delete: (id) => apiCall(`/contractors/${id}`, {
+    method: 'DELETE'
   })
 };
 
@@ -134,5 +141,16 @@ export const billsAPI = {
   delete: (billNumber) => apiCall(`/bills/${billNumber}`, {
     method: 'DELETE'
   })
+};
+
+// Series API
+export const seriesAPI = {
+  getAll: () => apiCall('/series'),
+  getById: (id) => apiCall(`/series/${id}`),
+  create: (jobNumbers) => apiCall('/series', {
+    method: 'POST',
+    body: { jobNumbers }
+  }),
+  searchByJobNumber: (jobNumber) => apiCall(`/series/search/${encodeURIComponent(jobNumber)}`)
 };
 

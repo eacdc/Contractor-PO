@@ -56,11 +56,23 @@
               <datalist id="jobNumberList"></datalist>
             </div>
 
+            <div class="field field--inline" style="display: flex; align-items: center; gap: 8px;">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer; margin: 0;">
+                <input type="checkbox" id="pullInSeriesCheckbox" style="width: auto; margin: 0;" />
+                <span>Pull in Series</span>
+              </label>
+            </div>
+
             <button class="primary-btn" type="submit">Search</button>
           </form>
         </section>
 
-        <!-- Section 1: Operations Pending -->
+        <!-- Multiple Jobs Container (for series) -->
+        <section id="multipleJobsWorkContainer" style="display: none;">
+          <!-- Job rows will be inserted here -->
+        </section>
+
+        <!-- Section 1: Operations Pending (for single job) -->
         <section class="panel panel--collapsible panel-collapsed" id="opsPendingPanel">
           <header class="panel-header">
             <h3>Operations Pending</h3>
@@ -136,7 +148,7 @@
     </div>
 
     <script type="module">
-      import { workAPI, contractorsAPI, jobsAPI, billsAPI } from './api.js';
+      import { workAPI, contractorsAPI, jobsAPI, billsAPI, seriesAPI, operationsAPI } from './api.js';
 
       const workSearchForm = document.getElementById("workSearchForm");
       const opsPendingPanel = document.getElementById("opsPendingPanel");
@@ -159,6 +171,88 @@
       // Cache to track pending qty reductions per job and operation
       // Structure: { jobNumber: { opId: totalReduction } }
       let pendingQtyCache = {};
+      let isSeriesMode = false; // Track if we're in series mode
+      let seriesJobs = []; // Array to store multiple jobs from series
+      let currentSeriesId = null; // Store series ID when pulling series
+      let allOperations = []; // Store all operations for type lookup
+
+      // Load all operations on page load
+      async function loadOperations() {
+        try {
+          allOperations = await operationsAPI.getAll();
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:182',message:'Operations loaded',data:{count:allOperations?.length,firstOp:allOperations?.[0]?._id,firstOpType:allOperations?.[0]?.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+        } catch (error) {
+          console.error('Error loading operations:', error);
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:184',message:'Error loading operations',data:{error:error.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+        }
+      }
+
+      // Helper function to recalculate valuePerBook based on operation type
+      function recalculateValuePerBook(operations) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:189',message:'recalculateValuePerBook ENTRY',data:{opsCount:operations?.length,allOpsCount:allOperations?.length,allOpsLoaded:!!allOperations&&allOperations.length>0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        if (!operations || !Array.isArray(operations)) {
+          return operations;
+        }
+
+        // If allOperations is not loaded yet, return operations as-is
+        if (!allOperations || allOperations.length === 0) {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:196',message:'allOperations NOT LOADED',data:{allOpsCount:allOperations?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+          // #endregion
+          console.warn('allOperations not loaded yet, skipping valuePerBook recalculation');
+          return operations;
+        }
+
+        return operations.map(op => {
+          // Find operation type from allOperations
+          // Normalize both IDs to strings for comparison
+          const opIdStr = String(op.opId);
+          const operation = allOperations.find(o => String(o._id) === opIdStr);
+          const operationType = operation ? operation.type : null;
+          const rate = op.rate || 0;
+          const qtyPerBook = op.qtyPerBook || 0;
+          const originalValuePerBook = op.valuePerBook || 0;
+          
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:204',message:'Operation lookup',data:{opId:op.opId,opIdStr:opIdStr,opsName:op.opsName,found:!!operation,operationType:operationType,rate:rate,qtyPerBook:qtyPerBook,originalValuePerBook:originalValuePerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
+          
+          // Recalculate valuePerBook based on operation type
+          // For 1/x: valuePerBook = rate * (1 / qtyPerBook)
+          // For others (1:1, 1*x): valuePerBook = rate * qtyPerBook
+          let valuePerBook;
+          if (operationType === '1/x' && qtyPerBook > 0) {
+            valuePerBook = rate * (1 / qtyPerBook);
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:214',message:'1/x calculation',data:{opsName:op.opsName,rate:rate,qtyPerBook:qtyPerBook,calculatedValuePerBook:valuePerBook,originalValuePerBook:originalValuePerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+            // #endregion
+          } else if (qtyPerBook > 0) {
+            valuePerBook = rate * qtyPerBook;
+            // #region agent log
+            fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:216',message:'Non-1/x calculation',data:{opsName:op.opsName,operationType:operationType,rate:rate,qtyPerBook:qtyPerBook,calculatedValuePerBook:valuePerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
+            // #endregion
+          } else {
+            // Fallback to stored value if qtyPerBook is 0 or invalid
+            valuePerBook = op.valuePerBook || 0;
+          }
+          
+          // Return operation with recalculated valuePerBook
+          const result = {
+            ...op,
+            valuePerBook: valuePerBook
+          };
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:223',message:'Recalculated operation',data:{opsName:op.opsName,originalValuePerBook:originalValuePerBook,newValuePerBook:valuePerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+          return result;
+        });
+      }
 
       // Load contractors and job numbers on page load
       async function loadContractors() {
@@ -197,6 +291,671 @@
       // Load data on page load
       loadContractors();
       loadJobNumbers();
+      loadOperations(); // Load all operations for type lookup
+      
+      // Initialize "Pull in Series" checkbox state on page load
+      updatePullInSeriesCheckboxState();
+
+      // Global event delegation for job selection checkboxes (only attach once)
+      // This handles when user manually checks/unchecks "Select" checkboxes
+      document.addEventListener('change', (e) => {
+        if (e.target.classList.contains('job-selection-checkbox') && e.target.dataset.sourceJob) {
+          const sourceJobNumber = e.target.dataset.sourceJob;
+          const sourceJobRow = document.querySelector(`[data-job-number="${sourceJobNumber}"]`);
+          if (sourceJobRow) {
+            const copyToSelectedCheckbox = sourceJobRow.querySelector(`.copy-to-selected-checkbox[data-job="${sourceJobNumber}"]`);
+            const copyToAllCheckbox = sourceJobRow.querySelector(`.copy-to-all-checkbox[data-job="${sourceJobNumber}"]`);
+            
+            // Only copy if "Copy to Selected Jobs" is checked (not "Copy to All")
+            if (copyToSelectedCheckbox && copyToSelectedCheckbox.checked && !copyToAllCheckbox.checked) {
+              console.log(`Job selection checkbox changed for source ${sourceJobNumber}, copying...`);
+              copyQuantitiesToSelectedJobs(sourceJobNumber);
+            }
+          }
+        }
+      });
+
+      // Helper function to create a job row with operations pending section
+      function createJobRowWithOps(jobNumber, operations) {
+        const jobRowId = `job-row-${jobNumber}`;
+        const rowDiv = document.createElement('div');
+        rowDiv.id = jobRowId;
+        rowDiv.classList.add('panel', 'panel--collapsible', 'panel-collapsed');
+        rowDiv.style.marginTop = '16px';
+        rowDiv.setAttribute('data-job-number', jobNumber);
+        
+        // Header with job number and copy options
+        const header = document.createElement('header');
+        header.classList.add('panel-header');
+        header.style.cursor = 'pointer';
+        header.style.display = 'flex';
+        header.style.justifyContent = 'space-between';
+        header.style.alignItems = 'center';
+        header.style.flexWrap = 'wrap';
+        header.style.gap = '12px';
+        
+        const headerLeft = document.createElement('div');
+        headerLeft.style.display = 'flex';
+        headerLeft.style.alignItems = 'center';
+        headerLeft.style.gap = '12px';
+        headerLeft.innerHTML = `<h3 style="margin: 0;">Job: ${jobNumber}</h3>`;
+        
+        // Copy options container (hidden initially, shown when quantities are entered)
+        // This should only appear on the job where quantities are entered
+        const copyOptionsContainer = document.createElement('div');
+        copyOptionsContainer.id = `copy-options-${jobNumber}`;
+        copyOptionsContainer.style.display = 'none'; // Hidden by default
+        copyOptionsContainer.style.alignItems = 'center';
+        copyOptionsContainer.style.gap = '12px';
+        copyOptionsContainer.style.flexWrap = 'wrap';
+        copyOptionsContainer.innerHTML = `
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; margin: 0;">
+            <input type="checkbox" class="copy-to-all-checkbox" data-job="${jobNumber}" />
+            <span>Copy to All Jobs</span>
+          </label>
+          <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; margin: 0;">
+            <input type="checkbox" class="copy-to-selected-checkbox" data-job="${jobNumber}" />
+            <span>Copy to Selected Jobs</span>
+          </label>
+        `;
+        
+        headerLeft.appendChild(copyOptionsContainer);
+        header.appendChild(headerLeft);
+        
+        // Body with operations pending section
+        const body = document.createElement('div');
+        body.classList.add('panel-body');
+        
+        // Operations table
+        const tableWrapper = document.createElement('div');
+        tableWrapper.classList.add('table-wrapper');
+        const table = document.createElement('table');
+        table.classList.add('data-table');
+        table.innerHTML = `
+          <thead>
+            <tr>
+              <th>Operations</th>
+              <th>Total Qty</th>
+              <th>Pending Qty</th>
+              <th>Qty to Add</th>
+            </tr>
+          </thead>
+          <tbody id="ops-body-${jobNumber}">
+          </tbody>
+        `;
+        tableWrapper.appendChild(table);
+        body.appendChild(tableWrapper);
+        
+        // Note: ADD button is removed - will be added outside all jobs in series mode
+        
+        // Populate operations
+        const opsBody = table.querySelector('tbody');
+        if (operations && operations.length > 0) {
+          operations.forEach(op => {
+            const cachedReduction = pendingQtyCache[jobNumber]?.[op.opId] || 0;
+            const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
+            
+            const row = document.createElement("tr");
+            row.innerHTML = `
+              <td>${op.opsName || '-'}</td>
+              <td>${op.totalOpsQty || 0}</td>
+              <td class="pending-cell">${adjustedPendingQty}</td>
+              <td>
+                <input
+                  type="number"
+                  class="work-qty-input"
+                  min="0"
+                  max="${adjustedPendingQty}"
+                  step="1"
+                  data-op-id="${op.opId}"
+                  data-job="${jobNumber}"
+                  data-value-per-book="${op.valuePerBook || 0}"
+                />
+              </td>
+            `;
+            opsBody.appendChild(row);
+          });
+        } else {
+          opsBody.innerHTML = '<tr><td colspan="4">No pending operations</td></tr>';
+        }
+        
+        // Make header clickable to expand/collapse
+        header.addEventListener('click', () => {
+          rowDiv.classList.toggle('panel-collapsed');
+        });
+        
+        rowDiv.appendChild(header);
+        rowDiv.appendChild(body);
+        
+        // Attach quantity input listeners (pass the row element directly)
+        attachQtyListenersForJob(jobNumber, rowDiv);
+        
+        return rowDiv;
+      }
+
+      // Helper function to attach quantity listeners for a specific job
+      function attachQtyListenersForJob(jobNumber, jobRow) {
+        // If jobRow is not provided, try to find it
+        if (!jobRow) {
+          jobRow = document.querySelector(`[data-job-number="${jobNumber}"]`);
+        }
+        
+        if (!jobRow) {
+          console.log(`Cannot attach listeners: Job row not found for ${jobNumber}`);
+          return;
+        }
+        
+        // Use event delegation on the job row for better reliability
+        jobRow.addEventListener('input', (e) => {
+          if (e.target.classList.contains('work-qty-input') && e.target.dataset.job === jobNumber) {
+            console.log(`Input changed for job ${jobNumber}, value: ${e.target.value}`);
+            
+            // Clear isCopied flag if user manually edits (not from copy operation)
+            // This allows copy options to appear if user manually enters quantities
+            if (!e.target.dataset.isCopied) {
+              // User manually entered - clear any isCopied flags on other inputs too
+              const allInputs = jobRow.querySelectorAll(`.work-qty-input[data-job="${jobNumber}"]`);
+              allInputs.forEach(input => {
+                delete input.dataset.isCopied;
+              });
+            }
+            
+            checkAndShowCopyOptions(jobNumber);
+            
+            // Also attach validation
+            const row = e.target.closest("tr");
+            const pendingCell = row?.querySelector(".pending-cell");
+            if (pendingCell) {
+              const pending = parseFloat(pendingCell.textContent || "0") || 0;
+              let value = parseFloat(e.target.value || "0");
+              if (value > pending) {
+                e.target.value = pending.toString();
+                if (workDoneWarning) {
+                  workDoneWarning.textContent = "Entered quantity cannot exceed pending quantity.";
+                }
+              }
+            }
+          }
+        });
+        
+        // Attach copy checkbox listeners
+        attachCopyListeners(jobNumber, jobRow);
+      }
+
+      // Attach copy checkbox listeners
+      function attachCopyListeners(jobNumber, jobRow) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:410',message:'attachCopyListeners called',data:{jobNumber,hasJobRow:!!jobRow},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
+        
+        // If jobRow is not provided, try to find it
+        if (!jobRow) {
+          jobRow = document.querySelector(`[data-job-number="${jobNumber}"]`);
+        }
+        
+        if (!jobRow) {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:413',message:'jobRow not found',data:{jobNumber},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+          // #endregion
+          return;
+        }
+        
+        // Check if listeners are already attached to avoid duplicates
+        if (jobRow.dataset.copyListenersAttached === 'true') {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:416',message:'listeners already attached',data:{jobNumber},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
+          return;
+        }
+        jobRow.dataset.copyListenersAttached = 'true';
+        
+        // Get references to both checkboxes
+        const copyToAll = jobRow.querySelector(`.copy-to-all-checkbox[data-job="${jobNumber}"]`);
+        const copyToSelected = jobRow.querySelector(`.copy-to-selected-checkbox[data-job="${jobNumber}"]`);
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:425',message:'checkboxes found',data:{jobNumber,hasCopyToAll:!!copyToAll,hasCopyToSelected:!!copyToSelected},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+        // #endregion
+        
+        if (!copyToAll || !copyToSelected) return;
+        
+        // Use a flag to prevent infinite loops when unchecking
+        let isUncheckingOther = false;
+        
+        // Handle "Copy to All" checkbox change event - ensure mutual exclusivity
+        copyToAll.addEventListener('change', function(e) {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:485',message:'copyToAll change fired',data:{jobNumber,thisChecked:this.checked,copyToSelectedChecked:copyToSelected?.checked,isUncheckingOther},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
+          
+          if (this.checked) {
+            // This checkbox is being checked - ensure the other is unchecked
+            if (copyToSelected && copyToSelected.checked && !isUncheckingOther) {
+              // #region agent log
+              fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:491',message:'unchecking copyToSelected in copyToAll change',data:{jobNumber},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'D'})}).catch(()=>{});
+              // #endregion
+              isUncheckingOther = true;
+              copyToSelected.checked = false;
+              // Don't dispatch change event on copyToSelected to avoid recursion
+              isUncheckingOther = false;
+            }
+            
+            // Check all "Select" checkboxes on other jobs
+            document.querySelectorAll(`.job-selection-checkbox[data-source-job="${jobNumber}"]`).forEach(checkbox => {
+              checkbox.checked = true;
+            });
+            
+            // Copy quantities to all jobs
+            copyQuantitiesToAllJobs(jobNumber);
+          } else {
+            // This checkbox is being unchecked - just clean up
+            document.querySelectorAll(`.job-selection-checkbox[data-source-job="${jobNumber}"]`).forEach(checkbox => {
+              checkbox.checked = false;
+            });
+          }
+          
+          // #region agent log
+          setTimeout(() => {
+            fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:512',message:'copyToAll change final state',data:{jobNumber,copyToAllChecked:copyToAll.checked,copyToSelectedChecked:copyToSelected.checked,bothChecked:copyToAll.checked&&copyToSelected.checked},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'D'})}).catch(()=>{});
+          }, 10);
+          // #endregion
+        });
+        
+        // Handle "Copy to Selected" checkbox change event - ensure mutual exclusivity
+        copyToSelected.addEventListener('change', function(e) {
+          // #region agent log
+          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:520',message:'copyToSelected change fired',data:{jobNumber,thisChecked:this.checked,copyToAllChecked:copyToAll?.checked,isUncheckingOther},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'D'})}).catch(()=>{});
+          // #endregion
+          
+          if (this.checked) {
+            // This checkbox is being checked - ensure the other is unchecked
+            if (copyToAll && copyToAll.checked && !isUncheckingOther) {
+              // #region agent log
+              fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:526',message:'unchecking copyToAll in copyToSelected change',data:{jobNumber},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'D'})}).catch(()=>{});
+              // #endregion
+              isUncheckingOther = true;
+              copyToAll.checked = false;
+              // Don't dispatch change event on copyToAll to avoid recursion
+              isUncheckingOther = false;
+            }
+            
+            // Uncheck all "Select" checkboxes - user will manually select
+            document.querySelectorAll(`.job-selection-checkbox[data-source-job="${jobNumber}"]`).forEach(checkbox => {
+              checkbox.checked = false;
+            });
+            
+            // Copy immediately when checked (to currently selected jobs, if any)
+            copyQuantitiesToSelectedJobs(jobNumber);
+          } else {
+            // This checkbox is being unchecked - just clean up
+            document.querySelectorAll(`.job-selection-checkbox[data-source-job="${jobNumber}"]`).forEach(checkbox => {
+              checkbox.checked = false;
+            });
+          }
+          
+          // #region agent log
+          setTimeout(() => {
+            fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:543',message:'copyToSelected change final state',data:{jobNumber,copyToAllChecked:copyToAll.checked,copyToSelectedChecked:copyToSelected.checked,bothChecked:copyToAll.checked&&copyToSelected.checked},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'D'})}).catch(()=>{});
+          }, 10);
+          // #endregion
+        });
+        
+      }
+
+      // Copy quantities to all jobs
+      function copyQuantitiesToAllJobs(sourceJobNumber) {
+        if (!isSeriesMode) return;
+        
+        const sourceJobRow = document.querySelector(`[data-job-number="${sourceJobNumber}"]`);
+        if (!sourceJobRow) return;
+        
+        // Get all quantities from source job with opId and valuePerBook
+        const sourceInputs = sourceJobRow.querySelectorAll(`.work-qty-input[data-job="${sourceJobNumber}"]`);
+        const quantitiesMap = {};
+        
+        sourceInputs.forEach(input => {
+          const opId = input.dataset.opId;
+          const valuePerBook = parseFloat((parseFloat(input.dataset.valuePerBook || 0) || 0).toFixed(2));
+          const qty = parseFloat(input.value || 0) || 0;
+          if (opId && qty > 0) {
+            // Store with both opId and valuePerBook as key for matching (rounded to 2 decimals)
+            const key = `${opId}_${valuePerBook}`;
+            quantitiesMap[key] = {
+              qty: qty,
+              opId: opId,
+              valuePerBook: valuePerBook
+            };
+          }
+        });
+        
+        // Copy to all other jobs in series (all "Select" checkboxes are already checked)
+        seriesJobs.forEach(job => {
+          if (job.jobNumber !== sourceJobNumber) {
+            copyQuantitiesToJob(sourceJobNumber, job.jobNumber, quantitiesMap);
+          }
+        });
+      }
+
+      // Copy quantities to selected jobs
+      function copyQuantitiesToSelectedJobs(sourceJobNumber) {
+        if (!isSeriesMode) return;
+        
+        const sourceJobRow = document.querySelector(`[data-job-number="${sourceJobNumber}"]`);
+        if (!sourceJobRow) return;
+        
+        // Get all quantities from source job with opId and valuePerBook
+        const sourceInputs = sourceJobRow.querySelectorAll(`.work-qty-input[data-job="${sourceJobNumber}"]`);
+        const quantitiesMap = {};
+        
+        sourceInputs.forEach(input => {
+          const opId = input.dataset.opId;
+          const valuePerBook = parseFloat((parseFloat(input.dataset.valuePerBook || 0) || 0).toFixed(2));
+          const qty = parseFloat(input.value || 0) || 0;
+          if (opId && qty > 0) {
+            // Store with both opId and valuePerBook as key for matching (rounded to 2 decimals)
+            const key = `${opId}_${valuePerBook}`;
+            quantitiesMap[key] = {
+              qty: qty,
+              opId: opId,
+              valuePerBook: valuePerBook
+            };
+          }
+        });
+
+        // Get selected jobs
+        const selectedCheckboxes = document.querySelectorAll(`.job-selection-checkbox[data-source-job="${sourceJobNumber}"]:checked`);
+        selectedCheckboxes.forEach(checkbox => {
+          const targetJobNumber = checkbox.value;
+          copyQuantitiesToJob(sourceJobNumber, targetJobNumber, quantitiesMap);
+        });
+      }
+
+      // Copy quantities to a specific job (matching operations by opId AND valuePerBook)
+      function copyQuantitiesToJob(sourceJobNumber, targetJobNumber, quantitiesMap) {
+        console.log(`Copying from ${sourceJobNumber} to ${targetJobNumber}`, quantitiesMap);
+        const targetJobRow = document.querySelector(`[data-job-number="${targetJobNumber}"]`);
+        if (!targetJobRow) {
+          console.log(`Target job row not found for ${targetJobNumber}`);
+          return;
+        }
+        
+        // Ensure copy options stay on source job only - hide them on target job
+        const targetCopyOptions = document.getElementById(`copy-options-${targetJobNumber}`);
+        if (targetCopyOptions) {
+          targetCopyOptions.style.display = 'none';
+        }
+        
+        // Get target job's operations
+        const targetInputs = targetJobRow.querySelectorAll(`.work-qty-input[data-job="${targetJobNumber}"]`);
+        console.log(`Found ${targetInputs.length} inputs in target job`);
+        
+        let copiedCount = 0;
+        targetInputs.forEach(input => {
+          const opId = input.dataset.opId;
+          const valuePerBook = parseFloat((parseFloat(input.dataset.valuePerBook || 0) || 0).toFixed(2));
+          
+          // Match by both opId and valuePerBook (rounded to 2 decimals)
+          const key = `${opId}_${valuePerBook}`;
+          if (quantitiesMap[key]) {
+            // Copy exact quantity if operation matches (by opId AND valuePerBook)
+            // No quantity validation - copy the exact value
+            const qtyToCopy = quantitiesMap[key].qty;
+            input.value = qtyToCopy.toString();
+            copiedCount++;
+            console.log(`Copied ${qtyToCopy} for opId ${opId} with valuePerBook ${valuePerBook} to job ${targetJobNumber}`);
+            
+            // Set a flag to indicate this was copied (not manually entered)
+            // This prevents copy options from appearing on target job
+            input.dataset.isCopied = 'true';
+            
+            // Trigger input event for validation only
+            // Note: checkAndShowCopyOptions will check isCopied flag and won't show copy options
+            const inputEvent = new Event('input', { bubbles: true });
+            input.dispatchEvent(inputEvent);
+          }
+        });
+        console.log(`Copied ${copiedCount} operations to ${targetJobNumber}`);
+      }
+
+      // Check if quantities are entered and show copy options
+      function checkAndShowCopyOptions(jobNumber) {
+        // Only show copy options in series mode (when there are multiple jobs)
+        if (!isSeriesMode || seriesJobs.length <= 1) {
+          return;
+        }
+        
+        const jobRow = document.querySelector(`[data-job-number="${jobNumber}"]`);
+        if (!jobRow) {
+          console.log(`Job row not found for ${jobNumber}`);
+          return;
+        }
+        
+        const inputs = jobRow.querySelectorAll(`.work-qty-input[data-job="${jobNumber}"]`);
+        let hasQuantities = false;
+        let isManuallyEntered = false; // Check if quantities were manually entered (not copied)
+        let manuallyEnteredCount = 0; // Count how many operations have manually entered quantities
+        
+        inputs.forEach(input => {
+          const value = parseFloat(input.value || 0) || 0;
+          if (value > 0) {
+            hasQuantities = true;
+            // If input doesn't have isCopied flag, it was manually entered
+            if (!input.dataset.isCopied) {
+              isManuallyEntered = true;
+              manuallyEnteredCount++;
+            }
+          }
+        });
+        
+        const copyOptions = document.getElementById(`copy-options-${jobNumber}`);
+        if (copyOptions) {
+          // Show copy options if at least 1 operation has manually entered quantity (even if just 1)
+          // This makes the job a "source job" for copying
+          if (hasQuantities && isManuallyEntered && manuallyEnteredCount >= 1) {
+            // Hide copy options on ALL jobs first
+            seriesJobs.forEach(j => {
+              const otherCopyOptions = document.getElementById(`copy-options-${j.jobNumber}`);
+              if (otherCopyOptions) {
+                otherCopyOptions.style.display = 'none';
+              }
+            });
+            
+            // Show copy options only on this job
+            copyOptions.style.display = 'flex';
+            console.log(`Copy options for ${jobNumber}: shown (manually entered), isSeriesMode: ${isSeriesMode}`);
+            
+            // Show "Select" checkboxes on all OTHER jobs
+            showSelectCheckboxesOnOtherJobs(jobNumber);
+          } else {
+            // Hide copy options if quantities were copied or cleared
+            copyOptions.style.display = 'none';
+            console.log(`Copy options for ${jobNumber}: hidden (copied or cleared)`);
+            
+            // If quantities were cleared, reset all checkbox states and clear copied quantities
+            if (!hasQuantities) {
+              resetAllCheckboxStates(jobNumber);
+              hideSelectCheckboxesForSource(jobNumber);
+            }
+          }
+        } else {
+          console.log(`Copy options container not found for ${jobNumber}`);
+        }
+      }
+
+      // Show "Select" checkboxes on all other jobs (NOT on the source job)
+      function showSelectCheckboxesOnOtherJobs(sourceJobNumber) {
+        // First, ensure copy options are hidden on all OTHER jobs (they should only show on source job)
+        seriesJobs.forEach(job => {
+          if (job.jobNumber !== sourceJobNumber) {
+            const otherJobRow = document.querySelector(`[data-job-number="${job.jobNumber}"]`);
+            if (otherJobRow) {
+              const otherCopyOptions = document.getElementById(`copy-options-${job.jobNumber}`);
+              if (otherCopyOptions) {
+                otherCopyOptions.style.display = 'none'; // Hide copy options on other jobs
+              }
+            }
+          }
+        });
+        
+        // Ensure "Select" checkbox is NOT shown on the source job (where copy options exist)
+        const sourceJobRow = document.querySelector(`[data-job-number="${sourceJobNumber}"]`);
+        if (sourceJobRow) {
+          const sourceHeader = sourceJobRow.querySelector('.panel-header');
+          if (sourceHeader) {
+            const sourceSelectionContainer = sourceHeader.querySelector(`.job-selection-container[data-source-job="${sourceJobNumber}"]`);
+            if (sourceSelectionContainer) {
+              sourceSelectionContainer.style.display = 'none'; // Hide select checkbox on source job
+            }
+          }
+        }
+        
+        // Now show "Select" checkboxes on all OTHER jobs (not on source job)
+        seriesJobs.forEach(job => {
+          if (job.jobNumber !== sourceJobNumber) {
+            const targetJobRow = document.querySelector(`[data-job-number="${job.jobNumber}"]`);
+            if (!targetJobRow) return;
+            
+            const header = targetJobRow.querySelector('.panel-header');
+            if (!header) return;
+            
+            // Check if selection checkbox already exists
+            let selectionContainer = header.querySelector(`.job-selection-container[data-source-job="${sourceJobNumber}"]`);
+            if (!selectionContainer) {
+              selectionContainer = document.createElement('div');
+              selectionContainer.className = 'job-selection-container';
+              selectionContainer.setAttribute('data-source-job', sourceJobNumber);
+              selectionContainer.style.display = 'flex';
+              selectionContainer.style.alignItems = 'center';
+              selectionContainer.style.gap = '6px';
+              selectionContainer.style.marginLeft = 'auto';
+              
+              const label = document.createElement('label');
+              label.style.cssText = 'display: flex; align-items: center; gap: 6px; cursor: pointer; margin: 0;';
+              
+              const checkbox = document.createElement('input');
+              checkbox.type = 'checkbox';
+              checkbox.className = 'job-selection-checkbox';
+              checkbox.value = job.jobNumber;
+              checkbox.setAttribute('data-source-job', sourceJobNumber);
+              
+              const span = document.createElement('span');
+              span.textContent = 'Select';
+              
+              label.appendChild(checkbox);
+              label.appendChild(span);
+              selectionContainer.appendChild(label);
+              header.appendChild(selectionContainer);
+            } else {
+              selectionContainer.style.display = 'flex';
+            }
+          }
+        });
+      }
+
+      // Flag to prevent infinite loop when resetting
+      let isResetting = false;
+
+      // Reset all checkbox states and clear copied quantities when source job quantities are cleared
+      function resetAllCheckboxStates(sourceJobNumber) {
+        // Prevent recursive calls
+        if (isResetting) {
+          return;
+        }
+        
+        isResetting = true;
+        
+        try {
+          const sourceJobRow = document.querySelector(`[data-job-number="${sourceJobNumber}"]`);
+          if (!sourceJobRow) {
+            return;
+          }
+        
+        // Uncheck "Copy to All Jobs" checkbox
+        const copyToAll = sourceJobRow.querySelector(`.copy-to-all-checkbox[data-job="${sourceJobNumber}"]`);
+        if (copyToAll) {
+          copyToAll.checked = false;
+        }
+        
+        // Uncheck "Copy to Selected Jobs" checkbox
+        const copyToSelected = sourceJobRow.querySelector(`.copy-to-selected-checkbox[data-job="${sourceJobNumber}"]`);
+        if (copyToSelected) {
+          copyToSelected.checked = false;
+        }
+        
+        // Uncheck all "Select" checkboxes on other jobs
+        document.querySelectorAll(`.job-selection-checkbox[data-source-job="${sourceJobNumber}"]`).forEach(checkbox => {
+          checkbox.checked = false;
+        });
+        
+        // Clear all copied quantities from other jobs in the series
+        if (isSeriesMode && seriesJobs) {
+          seriesJobs.forEach(job => {
+            if (job.jobNumber !== sourceJobNumber) {
+              const targetJobRow = document.querySelector(`[data-job-number="${job.jobNumber}"]`);
+              if (targetJobRow) {
+                // Get all quantity inputs in target job
+                const targetInputs = targetJobRow.querySelectorAll(`.work-qty-input[data-job="${job.jobNumber}"]`);
+                targetInputs.forEach(input => {
+                  // Clear the input value if it was copied
+                  // We'll clear quantities that match operations in the source job
+                  const opId = input.dataset.opId;
+                  if (opId) {
+                    // Check if this operation exists in source job (to determine if it was likely copied)
+                    const sourceInput = sourceJobRow.querySelector(`.work-qty-input[data-op-id="${opId}"][data-job="${sourceJobNumber}"]`);
+                    if (sourceInput) {
+                      // This operation exists in source job, so clear the value (it was likely copied)
+                      input.value = '';
+                      delete input.dataset.isCopied;
+                      // Don't trigger input event to avoid infinite loop
+                      // The input event would trigger checkAndShowCopyOptions which would call this function again
+                    }
+                  }
+                });
+              }
+            }
+          });
+        }
+        
+        console.log(`Reset all checkbox states and cleared copied quantities for source job ${sourceJobNumber}`);
+        } finally {
+          // Always reset the flag, even if there was an error
+          isResetting = false;
+        }
+      }
+
+      // Hide "Select" checkboxes for a source job
+      function hideSelectCheckboxesForSource(sourceJobNumber) {
+        document.querySelectorAll(`.job-selection-container[data-source-job="${sourceJobNumber}"]`).forEach(container => {
+          container.style.display = 'none';
+        });
+      }
+
+      // Reset all checkboxes (copy checkboxes and job selection checkboxes) for all jobs
+      function resetAllCheckboxes() {
+        // Reset all copy checkboxes (Copy to All and Copy to Selected)
+        document.querySelectorAll('.copy-to-all-checkbox').forEach(checkbox => {
+          checkbox.checked = false;
+        });
+        document.querySelectorAll('.copy-to-selected-checkbox').forEach(checkbox => {
+          checkbox.checked = false;
+        });
+        
+        // Reset all job selection checkboxes
+        document.querySelectorAll('.job-selection-checkbox').forEach(checkbox => {
+          checkbox.checked = false;
+        });
+        
+        // Hide all copy options containers
+        document.querySelectorAll('[id^="copy-options-"]').forEach(container => {
+          container.style.display = 'none';
+        });
+        
+        // Hide all job selection containers
+        document.querySelectorAll('.job-selection-container').forEach(container => {
+          container.style.display = 'none';
+        });
+      }
+
 
       // Search for pending work
       if (workSearchForm && opsPendingPanel) {
@@ -205,6 +964,8 @@
           
           const contractor = contractorSelect.value;
           const jobNumber = jobNumberInput.value.trim();
+          const pullInSeriesCheckbox = document.getElementById('pullInSeriesCheckbox');
+          const shouldPullSeries = pullInSeriesCheckbox && pullInSeriesCheckbox.checked;
 
           if (!contractor || !jobNumber) {
             workDoneWarning.textContent = "Please select contractor and job number.";
@@ -215,55 +976,143 @@
           currentJobNumber = jobNumber;
 
           try {
-            const result = await workAPI.getPendingFromJobOpsMaster(jobNumber);
-            opsPendingPanel.classList.remove("panel-collapsed");
-
-            // Populate table
-            if (opsPendingBody) {
-              opsPendingBody.innerHTML = "";
-              
-              if (result.operations && result.operations.length > 0) {
-                // Store operations data for bill table
-                currentOperationsData = result.operations;
-                
-                result.operations.forEach(op => {
-                  // Get cached reduction for this job and operation
-                  const cachedReduction = pendingQtyCache[jobNumber]?.[op.opId] || 0;
-                  // Calculate adjusted pending qty
-                  const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
-                  
-                  const row = document.createElement("tr");
-                  row.innerHTML = `
-                    <td>${op.opsName || '-'}</td>
-                    <td>${op.totalOpsQty || 0}</td>
-                    <td class="pending-cell">${adjustedPendingQty}</td>
-                    <td>
-                      <input
-                        type="number"
-                        class="work-qty-input"
-                        min="0"
-                        max="${adjustedPendingQty}"
-                        step="1"
-                        data-op-id="${op.opId}"
-                      />
-                    </td>
-                  `;
-                  opsPendingBody.appendChild(row);
-                });
-
-                // Attach event listeners to new inputs
-                attachQtyListeners();
-                
-                // Show ADD button when there are pending operations
-                if (addBtn) {
-                  addBtn.style.display = "inline-block";
+            let jobNumbersToLoad = [jobNumber];
+            
+            // If "Pull in Series" is checked, search for the series
+            if (shouldPullSeries) {
+              try {
+                const seriesResult = await seriesAPI.searchByJobNumber(jobNumber);
+                if (seriesResult.found && seriesResult.jobNumbers && seriesResult.jobNumbers.length > 0) {
+                  jobNumbersToLoad = seriesResult.jobNumbers;
+                  currentSeriesId = seriesResult.seriesId || null;
+                  isSeriesMode = true;
+                  console.log(`Found series with ${jobNumbersToLoad.length} job numbers:`, jobNumbersToLoad);
+                } else {
+                  isSeriesMode = false;
+                  currentSeriesId = null;
                 }
-              } else {
-                opsPendingBody.innerHTML = '<tr><td colspan="4">No pending operations</td></tr>';
+              } catch (seriesError) {
+                console.error('Error searching series:', seriesError);
+                isSeriesMode = false;
+                currentSeriesId = null;
+              }
+            } else {
+              isSeriesMode = false;
+              currentSeriesId = null;
+            }
+
+            // Load operations for all jobs
+            seriesJobs = [];
+            const multipleJobsContainer = document.getElementById('multipleJobsWorkContainer');
+            
+            if (isSeriesMode && jobNumbersToLoad.length > 1) {
+              // Hide single job panel, show multiple jobs container
+              opsPendingPanel.style.display = 'none'; // Hide completely in series mode
+              if (multipleJobsContainer) {
+                multipleJobsContainer.style.display = 'block';
+                multipleJobsContainer.innerHTML = '';
+              }
+              
+              // Load each job
+              for (const jn of jobNumbersToLoad) {
+                try {
+                  const result = await workAPI.getPendingFromJobOpsMaster(jn);
+                  // Recalculate valuePerBook for 1/x operations
+                  const recalculatedOperations = recalculateValuePerBook(result.operations || []);
+                  
+                  seriesJobs.push({
+                    jobNumber: jn,
+                    operations: recalculatedOperations
+                  });
+                  
+                  // Create job row with recalculated operations
+                  const jobRow = createJobRowWithOps(jn, recalculatedOperations);
+                  if (multipleJobsContainer) {
+                    multipleJobsContainer.appendChild(jobRow);
+                  }
+                } catch (error) {
+                  console.error(`Error loading job ${jn}:`, error);
+                }
+              }
+              
+              // Add a single ADD button for all jobs after loading them
+              if (multipleJobsContainer && seriesJobs.length > 0) {
+                const addAllButtonRow = document.createElement('div');
+                addAllButtonRow.classList.add('button-row');
+                addAllButtonRow.style.marginTop = '16px';
+                addAllButtonRow.style.marginBottom = '16px';
+                addAllButtonRow.innerHTML = `
+                  <button class="secondary-btn primary-btn--sm" type="button" id="addAllJobsBtn">
+                    ADD ALL JOBS
+                  </button>
+                `;
+                multipleJobsContainer.appendChild(addAllButtonRow);
+              }
+            } else {
+              // Single job mode
+              isSeriesMode = false;
+              if (multipleJobsContainer) {
+                multipleJobsContainer.style.display = 'none';
+              }
+              
+              // Show Operations Pending panel for single job mode
+              opsPendingPanel.style.display = 'block';
+              const result = await workAPI.getPendingFromJobOpsMaster(jobNumber);
+              opsPendingPanel.classList.remove("panel-collapsed");
+
+              // Populate table
+              if (opsPendingBody) {
+                opsPendingBody.innerHTML = "";
                 
-                // Hide ADD button when there are no pending operations
-                if (addBtn) {
-                  addBtn.style.display = "none";
+                if (result.operations && result.operations.length > 0) {
+                  // Recalculate valuePerBook for 1/x operations
+                  // #region agent log
+                  fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:1041',message:'Before recalculation - single job',data:{opsCount:result.operations.length,firstOpValuePerBook:result.operations[0]?.valuePerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                  // #endregion
+                  const recalculatedOperations = recalculateValuePerBook(result.operations);
+                  // #region agent log
+                  fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:1043',message:'After recalculation - single job',data:{opsCount:recalculatedOperations.length,firstOpValuePerBook:recalculatedOperations[0]?.valuePerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+                  // #endregion
+                  currentOperationsData = recalculatedOperations;
+                  
+                  recalculatedOperations.forEach(op => {
+                    const cachedReduction = pendingQtyCache[jobNumber]?.[op.opId] || 0;
+                    const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
+                    
+                    const row = document.createElement("tr");
+                    row.innerHTML = `
+                      <td>${op.opsName || '-'}</td>
+                      <td>${op.totalOpsQty || 0}</td>
+                      <td class="pending-cell">${adjustedPendingQty}</td>
+                      <td>
+                        <input
+                          type="number"
+                          class="work-qty-input"
+                          min="0"
+                          max="${adjustedPendingQty}"
+                          step="1"
+                          data-op-id="${op.opId}"
+                          data-value-per-book="${op.valuePerBook || 0}"
+                        />
+                      </td>
+                    `;
+                    // #region agent log
+                    fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:1062',message:'DOM input valuePerBook',data:{opsName:op.opsName,opId:op.opId,valuePerBook:op.valuePerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+                    // #endregion
+                    opsPendingBody.appendChild(row);
+                  });
+
+                  attachQtyListeners();
+                  
+                  if (addBtn) {
+                    addBtn.style.display = "inline-block";
+                  }
+                } else {
+                  opsPendingBody.innerHTML = '<tr><td colspan="4">No pending operations</td></tr>';
+                  
+                  if (addBtn) {
+                    addBtn.style.display = "none";
+                  }
                 }
               }
             }
@@ -323,9 +1172,12 @@
           
           qtyInputs.forEach(input => {
             const opId = input.dataset.opId;
+            const valuePerBook = parseFloat((parseFloat(input.dataset.valuePerBook || "0") || 0).toFixed(2));
             const qtyToAdd = parseFloat(input.value || "0") || 0;
             if (opId && qtyToAdd > 0) {
-              qtyToAddMap[opId] = qtyToAdd;
+              // Use composite key: opId_valuePerBook to handle cases where same opId exists with different valuePerBook (rounded to 2 decimals)
+              const key = `${opId}_${valuePerBook}`;
+              qtyToAddMap[key] = qtyToAdd;
             }
           });
 
@@ -337,7 +1189,10 @@
 
           // Add operations to bill data (accumulate across job numbers)
           currentOperationsData.forEach(op => {
-            const qtyCompleted = qtyToAddMap[op.opId] || 0;
+            // Match using composite key: opId_valuePerBook (rounded to 2 decimals)
+            const opValuePerBook = parseFloat((parseFloat(op.valuePerBook || 0) || 0).toFixed(2));
+            const key = `${op.opId}_${opValuePerBook}`;
+            const qtyCompleted = qtyToAddMap[key] || 0;
             
             // Only add operations where qty to add > 0
             if (qtyCompleted > 0) {
@@ -354,6 +1209,10 @@
                 return;
               }
               
+              // #region agent log
+              fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:1170',message:'Adding to billData',data:{opsName:op.opsName,opId:op.opId,valuePerBook:op.valuePerBook,rate:rate,qtyPerBook:op.qtyPerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+              // #endregion
+              
               billData.push({
                 jobNumber: currentJobNumber,
                 opId: op.opId, // Store opId for updating JobOpsMaster and Contractor_WD
@@ -361,7 +1220,8 @@
                 qtyBook: op.qtyPerBook || 0,
                 rate: rate,
                 qtyCompleted: qtyCompleted,
-                totalValue: totalValue
+                totalValue: totalValue,
+                valuePerBook: op.valuePerBook || 0 // Store valuePerBook for matching
               });
               
               hasUnsavedBillData = true;
@@ -414,7 +1274,150 @@
           if (billTablePanel) {
             billTablePanel.classList.remove("panel-collapsed");
           }
+          
+          // Update "Pull in Series" checkbox state (will be disabled if billData has items)
+          updatePullInSeriesCheckboxState();
         });
+      }
+
+      // Handler for "ADD ALL JOBS" button in series mode
+      document.addEventListener('click', async (e) => {
+        if (e.target.id === 'addAllJobsBtn') {
+          if (!isSeriesMode || !seriesJobs || seriesJobs.length === 0) {
+            workDoneWarning.textContent = "No jobs found to add.";
+            return;
+          }
+          
+          let hasAnyQuantities = false;
+          let totalOperationsAdded = 0;
+          
+          // Process all jobs in the series
+          for (const jobData of seriesJobs) {
+            const jobNumber = jobData.jobNumber;
+            const jobRow = document.querySelector(`[data-job-number="${jobNumber}"]`);
+            if (!jobRow) continue;
+            
+            // Get qty to add values for this job
+            const qtyInputs = jobRow.querySelectorAll(`.work-qty-input[data-job="${jobNumber}"]`);
+            const qtyToAddMap = {};
+            
+            qtyInputs.forEach(input => {
+              const opId = input.dataset.opId;
+              const valuePerBook = parseFloat((parseFloat(input.dataset.valuePerBook || "0") || 0).toFixed(2));
+              const qtyToAdd = parseFloat(input.value || "0") || 0;
+              if (opId && qtyToAdd > 0) {
+                // Use composite key: opId_valuePerBook to handle cases where same opId exists with different valuePerBook (rounded to 2 decimals)
+                const key = `${opId}_${valuePerBook}`;
+                qtyToAddMap[key] = qtyToAdd;
+                hasAnyQuantities = true;
+              }
+            });
+
+            // Add operations to bill data for this job
+            jobData.operations.forEach(op => {
+              // Match using composite key: opId_valuePerBook (rounded to 2 decimals)
+              const opValuePerBook = parseFloat((parseFloat(op.valuePerBook || 0) || 0).toFixed(2));
+              const key = `${op.opId}_${opValuePerBook}`;
+              const qtyCompleted = qtyToAddMap[key] || 0;
+              
+              if (qtyCompleted > 0) {
+                const rate = op.rate || 0;
+                const totalValue = qtyCompleted * rate;
+                const opsName = op.opsName;
+                
+                if (!opsName || !opsName.trim() || opsName.trim() === 'Unknown' || opsName.trim() === '-') {
+                  console.error('Missing or invalid opsName for operation:', op);
+                  return;
+                }
+                
+              billData.push({
+                jobNumber: jobNumber,
+                opId: op.opId,
+                opsName: opsName.trim(),
+                qtyBook: op.qtyPerBook || 0,
+                rate: rate,
+                qtyCompleted: qtyCompleted,
+                totalValue: totalValue,
+                valuePerBook: op.valuePerBook || 0 // Store valuePerBook for matching
+              });
+                
+                totalOperationsAdded++;
+                hasUnsavedBillData = true;
+              }
+            });
+
+            // Update pending quantities and cache for this job
+            qtyInputs.forEach(input => {
+              const opId = input.dataset.opId;
+              const qtyAdded = parseFloat(input.value || "0") || 0;
+              
+              if (opId && qtyAdded > 0) {
+                // Update cache
+                if (!pendingQtyCache[jobNumber]) {
+                  pendingQtyCache[jobNumber] = {};
+                }
+                if (!pendingQtyCache[jobNumber][opId]) {
+                  pendingQtyCache[jobNumber][opId] = 0;
+                }
+                pendingQtyCache[jobNumber][opId] += qtyAdded;
+                
+                // Update pending cell
+                const row = input.closest("tr");
+                const pendingCell = row?.querySelector(".pending-cell");
+                
+                if (pendingCell) {
+                  const currentPending = parseFloat(pendingCell.textContent || "0") || 0;
+                  const newPending = Math.max(0, currentPending - qtyAdded);
+                  pendingCell.textContent = newPending;
+                  input.max = newPending;
+                }
+                
+                // Clear the input field
+                input.value = "";
+              }
+            });
+          }
+
+          // Check if any quantities were entered
+          if (!hasAnyQuantities) {
+            workDoneWarning.textContent = "Please enter quantities in 'Qty to Add' fields for at least one job.";
+            return;
+          }
+
+          // Refresh bill table with all accumulated data
+          refreshBillTable();
+
+          // Enable Save Bill button
+          if (saveBtn) {
+            saveBtn.disabled = false;
+            saveBtn.style.display = "inline-block";
+          }
+
+          // Show bill table panel
+          if (billTablePanel) {
+            billTablePanel.classList.remove("panel-collapsed");
+          }
+          
+          // Reset all checkboxes after adding
+          resetAllCheckboxes();
+          
+          // Update "Pull in Series" checkbox state (will be disabled if billData has items)
+          updatePullInSeriesCheckboxState();
+          
+          workDoneWarning.textContent = `Added ${totalOperationsAdded} operation(s) from all jobs.`;
+          setTimeout(() => {
+            workDoneWarning.textContent = "";
+          }, 3000);
+        }
+      });
+
+      // Function to update "Pull in Series" checkbox state based on bill data
+      function updatePullInSeriesCheckboxState() {
+        const pullInSeriesCheckbox = document.getElementById('pullInSeriesCheckbox');
+        if (pullInSeriesCheckbox) {
+          // Disable if there's any data in billData, enable if empty
+          pullInSeriesCheckbox.disabled = billData.length > 0;
+        }
       }
 
       // Function to refresh bill table with accumulated data
@@ -457,6 +1460,9 @@
             `;
           }
         }
+        
+        // Update "Pull in Series" checkbox state after refreshing bill table
+        updatePullInSeriesCheckboxState();
       }
 
       // Function to clear all data with confirmation
@@ -507,6 +1513,9 @@
         if (addBtn) {
           addBtn.style.display = "none";
         }
+        
+        // Update "Pull in Series" checkbox state (will be enabled since billData is empty)
+        updatePullInSeriesCheckboxState();
       }
 
       // Save Bill button handler
@@ -538,6 +1547,7 @@
           }
           
           jobsMap[item.jobNumber].push({
+            opId: item.opId, // Include opId for operation type lookup
             opsName: item.opsName.trim(),
             qtyBook: item.qtyBook,
             rate: item.rate,
@@ -564,6 +1574,8 @@
             }
             updatesByJob[item.jobNumber].push({
               opId: item.opId,
+              opsName: item.opsName,
+              valuePerBook: item.valuePerBook,
               qtyToAdd: item.qtyCompleted
             });
           });
@@ -594,7 +1606,26 @@
           hasUnsavedBillData = false;
           pendingQtyCache = {}; // Clear pending qty cache
           
+          // Reset all checkboxes
+          resetAllCheckboxes();
+          
+          // Update "Pull in Series" checkbox state (will be enabled since billData is empty)
+          updatePullInSeriesCheckboxState();
+          
+          // Handle series mode - clear multiple jobs container
+          if (isSeriesMode) {
+            const multipleJobsContainer = document.getElementById('multipleJobsWorkContainer');
+            if (multipleJobsContainer) {
+              multipleJobsContainer.innerHTML = '';
+              multipleJobsContainer.style.display = 'none';
+            }
+            seriesJobs = [];
+            isSeriesMode = false;
+            currentSeriesId = null;
+          }
+          
           // Collapse panels
+          opsPendingPanel.style.display = 'block'; // Show it again for single job mode
           opsPendingPanel.classList.add("panel-collapsed");
           billTablePanel.classList.add("panel-collapsed");
           
@@ -613,6 +1644,12 @@
           }
           if (addBtn) {
             addBtn.style.display = "none";
+          }
+          
+          // Remove "ADD ALL JOBS" button if it exists
+          const addAllJobsBtn = document.getElementById('addAllJobsBtn');
+          if (addAllJobsBtn) {
+            addAllJobsBtn.remove();
           }
           
           // Refresh bill table (will be empty now)

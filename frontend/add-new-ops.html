@@ -100,6 +100,7 @@
                     <th>Ops Name</th>
                     <th>Type</th>
                     <th>Rate/Unit</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody></tbody>
@@ -195,17 +196,8 @@
             addNewOpsWarning.style.color = "#4ade80";
             addNewOpsWarning.textContent = "Operation added successfully!";
 
-            // Add to table
-            if (addedOpsBody && addedOpsWrapper) {
-              addedOpsWrapper.style.display = "block";
-              const row = document.createElement("tr");
-              row.innerHTML = `
-                <td>${operation.opsName}</td>
-                <td>${operation.type}</td>
-                <td>${operation.ratePerUnit !== null && operation.ratePerUnit !== undefined ? operation.ratePerUnit : '-'}</td>
-              `;
-              addedOpsBody.appendChild(row);
-            }
+            // Reload operations table
+            await loadExistingOperations();
 
             // Clear inputs
           newOpsNameInput.value = "";
@@ -226,20 +218,148 @@
       async function loadExistingOperations() {
         try {
           const operations = await operationsAPI.getAll();
-          if (operations.length > 0 && addedOpsBody && addedOpsWrapper) {
-            addedOpsWrapper.style.display = "block";
-            operations.forEach(op => {
-              const row = document.createElement("tr");
-              row.innerHTML = `
-                <td>${op.opsName}</td>
-                <td>${op.type}</td>
-                <td>${op.ratePerUnit !== null && op.ratePerUnit !== undefined ? op.ratePerUnit : '-'}</td>
-              `;
-              addedOpsBody.appendChild(row);
-            });
+          if (addedOpsBody && addedOpsWrapper) {
+            if (operations.length > 0) {
+              addedOpsWrapper.style.display = "block";
+              addedOpsBody.innerHTML = operations.map(op => `
+                <tr data-id="${op._id}">
+                  <td>
+                    <span class="ops-name-display">${op.opsName}</span>
+                    <input type="text" class="ops-name-edit" value="${op.opsName}" style="display: none; width: 100%;">
+                  </td>
+                  <td>
+                    <span class="ops-type-display">${op.type}</span>
+                    <select class="ops-type-edit" style="display: none; width: 100%;">
+                      <option value="1:1" ${op.type === '1:1' ? 'selected' : ''}>1:1</option>
+                      <option value="1*x" ${op.type === '1*x' ? 'selected' : ''}>1*x</option>
+                      <option value="1/x" ${op.type === '1/x' ? 'selected' : ''}>1/x</option>
+                    </select>
+                  </td>
+                  <td>
+                    <span class="ops-rate-display">${op.ratePerUnit !== null && op.ratePerUnit !== undefined ? op.ratePerUnit : '-'}</span>
+                    <input type="number" class="ops-rate-edit" value="${op.ratePerUnit !== null && op.ratePerUnit !== undefined ? op.ratePerUnit : ''}" step="0.01" min="0" style="display: none; width: 100%;">
+                  </td>
+                  <td>
+                    <button class="edit-ops-btn" data-id="${op._id}" style="margin-right: 8px;">Edit</button>
+                    <button class="delete-ops-btn" data-id="${op._id}" style="background-color: #ef4444; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer;">Delete</button>
+                  </td>
+                </tr>
+              `).join('');
+              
+              // Attach event listeners
+              attachOpsEventListeners();
+            } else {
+              addedOpsWrapper.style.display = "none";
+              addedOpsBody.innerHTML = '';
+            }
           }
         } catch (error) {
           console.error('Error loading operations:', error);
+        }
+      }
+
+      // Attach event listeners for edit and delete buttons
+      function attachOpsEventListeners() {
+        // Edit buttons
+        document.querySelectorAll('.edit-ops-btn').forEach(btn => {
+          btn.addEventListener('click', async function() {
+            const opId = this.getAttribute('data-id');
+            const row = this.closest('tr');
+            const nameDisplay = row.querySelector('.ops-name-display');
+            const nameEdit = row.querySelector('.ops-name-edit');
+            const typeDisplay = row.querySelector('.ops-type-display');
+            const typeEdit = row.querySelector('.ops-type-edit');
+            const rateDisplay = row.querySelector('.ops-rate-display');
+            const rateEdit = row.querySelector('.ops-rate-edit');
+            const editBtn = row.querySelector('.edit-ops-btn');
+            
+            if (nameEdit.style.display === 'none') {
+              // Switch to edit mode
+              nameDisplay.style.display = 'none';
+              nameEdit.style.display = 'inline-block';
+              typeDisplay.style.display = 'none';
+              typeEdit.style.display = 'inline-block';
+              rateDisplay.style.display = 'none';
+              rateEdit.style.display = 'inline-block';
+              editBtn.textContent = 'Save';
+              
+              nameEdit.focus();
+              nameEdit.select();
+            } else {
+              // Save mode
+              await saveOpsEdit(opId, nameEdit.value.trim(), typeEdit.value, rateEdit.value.trim(), row);
+            }
+          });
+        });
+        
+        // Delete buttons
+        document.querySelectorAll('.delete-ops-btn').forEach(btn => {
+          btn.addEventListener('click', async function() {
+            const opId = this.getAttribute('data-id');
+            const opsName = this.closest('tr').querySelector('.ops-name-display').textContent;
+            
+            if (confirm(`Are you sure you want to delete "${opsName}"?`)) {
+              try {
+                await operationsAPI.delete(opId);
+                await loadExistingOperations();
+                addNewOpsWarning.textContent = 'Operation deleted successfully!';
+                addNewOpsWarning.style.color = '#4ade80';
+                setTimeout(() => {
+                  addNewOpsWarning.textContent = '';
+                }, 3000);
+              } catch (error) {
+                addNewOpsWarning.style.color = '#ef4444';
+                addNewOpsWarning.textContent = error.message || 'Failed to delete operation.';
+              }
+            }
+          });
+        });
+      }
+
+      // Save operation edit
+      async function saveOpsEdit(opId, newName, newType, newRatePerUnit, row) {
+        if (!newName || !newType) {
+          addNewOpsWarning.style.color = '#ef4444';
+          addNewOpsWarning.textContent = 'Ops Name and Type are required.';
+          return;
+        }
+        
+        const ratePerUnit = parseFloat(newRatePerUnit);
+        if (isNaN(ratePerUnit) || ratePerUnit < 0) {
+          addNewOpsWarning.style.color = '#ef4444';
+          addNewOpsWarning.textContent = 'Rate/Unit must be a valid number greater than or equal to 0.';
+          return;
+        }
+        
+        try {
+          await operationsAPI.update(opId, newName, newType, ratePerUnit);
+          const nameDisplay = row.querySelector('.ops-name-display');
+          const nameEdit = row.querySelector('.ops-name-edit');
+          const typeDisplay = row.querySelector('.ops-type-display');
+          const typeEdit = row.querySelector('.ops-type-edit');
+          const rateDisplay = row.querySelector('.ops-rate-display');
+          const rateEdit = row.querySelector('.ops-rate-edit');
+          const editBtn = row.querySelector('.edit-ops-btn');
+          
+          nameDisplay.textContent = newName;
+          nameDisplay.style.display = 'inline';
+          nameEdit.style.display = 'none';
+          typeDisplay.textContent = newType;
+          typeDisplay.style.display = 'inline';
+          typeEdit.style.display = 'none';
+          rateDisplay.textContent = ratePerUnit;
+          rateDisplay.style.display = 'inline';
+          rateEdit.style.display = 'none';
+          editBtn.textContent = 'Edit';
+          
+          addNewOpsWarning.textContent = 'Operation updated successfully!';
+          addNewOpsWarning.style.color = '#4ade80';
+          setTimeout(() => {
+            addNewOpsWarning.textContent = '';
+          }, 3000);
+        } catch (error) {
+          addNewOpsWarning.style.color = '#ef4444';
+          addNewOpsWarning.textContent = error.message || 'Failed to update operation.';
         }
       }
 

@@ -5,6 +5,19 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Contractor PO System - Add Ops to Job</title>
     <link rel="stylesheet" href="styles.css" />
+    <style>
+      /* Toggle Switch Styles */
+      #jobModeToggle:checked + span {
+        background-color: #6366f1;
+      }
+      #jobModeToggle:checked + span span {
+        transform: translateX(26px);
+      }
+      /* Panel collapse styles */
+      .panel-collapsed > .panel-body {
+        display: none !important;
+      }
+    </style>
   </head>
   <body>
     <div class="app">
@@ -21,12 +34,26 @@
 
       <main class="app-main app-main--home">
         <section class="intro">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+            <div>
           <h2>Add Ops to Job</h2>
           <p>Search a job by number, review previous ops, and add new ones.</p>
+            </div>
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span>Single Job</span>
+              <label style="position: relative; display: inline-block; width: 50px; height: 24px;">
+                <input type="checkbox" id="jobModeToggle" style="opacity: 0; width: 0; height: 0;">
+                <span style="position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #475569; border-radius: 24px; transition: 0.4s;">
+                  <span style="position: absolute; content: ''; height: 18px; width: 18px; left: 3px; bottom: 3px; background-color: white; border-radius: 50%; transition: 0.4s;"></span>
+                </span>
+              </label>
+              <span>Multiple Job</span>
+            </div>
+          </div>
         </section>
 
         <!-- Job search -->
-        <section class="panel">
+        <section class="panel" id="jobSearchPanel">
           <form class="job-search" id="jobSearchForm">
             <div class="field field--inline">
               <label for="jobNumber">Job Number</label>
@@ -44,9 +71,69 @@
                 </div>
               </div>
             </div>
-            <button class="primary-btn" type="submit">Search</button>
+            <div class="field field--inline" style="display: none;" id="pullInSeriesField">
+              <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+                <input type="checkbox" id="pullInSeriesCheckbox" style="width: auto; margin: 0;" />
+                <span>Pull in Series</span>
+              </label>
+            </div>
+            <button class="secondary-btn" type="button" id="addJobBtn" style="display: none;">Add</button>
+            <button class="primary-btn" type="submit" id="jobSearchBtn">Search</button>
           </form>
           <p class="inline-warning" id="jobSearchError" style="display: none;"></p>
+        </section>
+
+        <!-- Multiple Jobs Container -->
+        <section id="multipleJobsContainer" style="display: none;">
+          <!-- Expandable job rows will be inserted here -->
+        </section>
+
+        <!-- Common Add New Ops Section for Multiple Jobs -->
+        <section class="panel panel--collapsible" id="multipleJobsAddOpsSection" style="display: none;">
+          <header class="panel-header">
+            <h3>Add New Ops (All Jobs)</h3>
+          </header>
+          <div class="panel-body">
+            <div class="table-wrapper">
+              <table class="data-table" id="multipleJobsAddOpsTable">
+                <thead>
+                  <tr>
+                    <th>Ops Name</th>
+                    <th>Qty / Book</th>
+                    <th>Rate</th>
+                    <th>Rate / Book</th>
+                  </tr>
+                </thead>
+                <tbody id="multipleJobsAddOpsBody">
+                  <tr class="ops-row">
+                    <td>
+                      <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" />
+                    </td>
+                    <td>
+                      <input type="text" name="qtyBook" />
+                    </td>
+                    <td>
+                      <input type="number" name="rate" value="1" readonly />
+                    </td>
+                    <td>
+                      <input type="number" name="rateBook" value="1" readonly />
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <div class="button-row">
+              <button class="secondary-btn" type="button" id="multipleJobsAddOpsRowBtn">
+                Add
+              </button>
+              <button class="primary-btn primary-btn--sm" type="button" id="multipleJobsSaveOpsBtn">
+                Save to All Jobs
+              </button>
+            </div>
+
+            <p class="inline-warning" id="multipleJobsAddOpsWarning"></p>
+          </div>
         </section>
 
         <!-- Section 1: Job details -->
@@ -122,9 +209,7 @@
                 <tbody id="addOpsBody">
                   <tr class="ops-row">
                     <td>
-                      <select name="opsName" class="ops-select">
-                        <option value="">Select ops</option>
-                      </select>
+                      <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" />
                     </td>
                     <td>
                       <input type="text" name="qtyBook" />
@@ -154,6 +239,9 @@
         </section>
       </main>
 
+      <!-- Single datalist for all ops dropdowns -->
+      <datalist id="opsList"></datalist>
+
       <footer class="app-footer">
         <span>Contractor PO System</span>
         <span class="divider">•</span>
@@ -162,12 +250,14 @@
     </div>
 
     <script type="module">
-      import { jobsAPI, operationsAPI } from './api.js';
+      import { jobsAPI, operationsAPI, seriesAPI } from './api.js';
 
       let currentJobId = null;
       let allOperations = [];
-      let alreadyAddedOpIds = new Set(); // Track ops already added for current job
       let hasSearchedJob = false; // Track if a job has been searched
+      let isMultipleJobMode = false; // Track single/multiple job mode
+      let multipleJobs = []; // Array to store multiple job data
+      let currentSeriesId = null; // Store series ID when pulling in a series
 
       // Collapsible panels
       document.querySelectorAll(".panel--collapsible .panel-header").forEach((header) => {
@@ -177,81 +267,99 @@
         });
       });
 
-      // Helper: Get currently selected opIds from "Add New Ops" rows
-      function getCurrentlySelectedOpIds() {
+      // Helper: Get currently selected op names/IDs from "Add New Ops" rows
+      function getCurrentlySelectedOpNames() {
         const selected = new Set();
-        const rows = document.querySelectorAll('#addOpsBody .ops-row');
-        rows.forEach(row => {
-          const select = row.querySelector('select[name="opsName"]');
-          if (select && select.value) {
-            selected.add(select.value);
+        // Check single job section
+        const singleJobRows = document.querySelectorAll('#addOpsBody .ops-row');
+        singleJobRows.forEach(row => {
+          const input = row.querySelector('input[name="opsName"]');
+          if (input && input.value) {
+            selected.add(input.value);
+          }
+        });
+        // Check multiple jobs section
+        const multipleJobsRows = document.querySelectorAll('#multipleJobsAddOpsBody .ops-row');
+        multipleJobsRows.forEach(row => {
+          const input = row.querySelector('input[name="opsName"]');
+          if (input && input.value) {
+            selected.add(input.value);
           }
         });
         return selected;
       }
 
-      // Helper: Populate a dropdown with available operations (excluding already added)
-      function populateDropdown(select, excludeOpId = null) {
-        if (!select) return;
+      // Helper: Populate datalist with available operations
+      function populateDatalist() {
+        const datalist = document.getElementById('opsList');
+        if (!datalist) return;
         
-        const currentValue = select.value;
-        const currentlySelected = getCurrentlySelectedOpIds();
-        
-        // If this select has a value, don't exclude it from itself
-        if (currentValue && excludeOpId === currentValue) {
-          excludeOpId = null;
-        }
-        
-        select.innerHTML = '<option value="">Select ops</option>';
+        datalist.innerHTML = '';
         
         allOperations.forEach(op => {
-          // Skip if already added for this job (from previousOps)
-          if (alreadyAddedOpIds.has(op._id)) {
-            return;
-          }
-          
-          // Skip if currently selected in another row (unless it's this row's current selection)
-          if (currentlySelected.has(op._id) && op._id !== currentValue) {
-            return;
-          }
-          
-          // Skip if explicitly excluded
-          if (excludeOpId && op._id === excludeOpId) {
-            return;
-          }
-          
           const option = document.createElement('option');
-          option.value = op._id;
-          option.textContent = op.opsName;
-          select.appendChild(option);
+          option.value = op.opsName;
+          option.dataset.opId = op._id;
+          datalist.appendChild(option);
         });
-        
-        // Restore previous selection if it's still valid
-        if (currentValue) {
-          const optionExists = Array.from(select.options).some(opt => opt.value === currentValue);
-          if (optionExists) {
-            select.value = currentValue;
-          }
-        }
       }
 
-      // Load operations for dropdown
+      // Helper: Find operation by name or ID
+      function findOperationByNameOrId(value) {
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'add-ops.html:307',message:'findOperationByNameOrId ENTRY',data:{searchValue:value,allOpsCount:allOperations?.length,allOpsNames:allOperations?.map(o=>o.opsName)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
+        if (!value) return null;
+        
+        // First try to find by ID (normalize to string for comparison)
+        const valueStr = String(value);
+        let operation = allOperations.find(op => String(op._id) === valueStr);
+        
+        // #region agent log
+        if (operation) {
+          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'add-ops.html:312',message:'Found by ID',data:{searchValue:value,foundOpsName:operation.opsName},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+        }
+        // #endregion
+        
+        // If not found by ID, try to find by name (case-insensitive)
+        if (!operation) {
+          const valueTrimmed = value.trim();
+          operation = allOperations.find(op => op.opsName.toLowerCase() === valueTrimmed.toLowerCase());
+          // #region agent log
+          if (operation) {
+            fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'add-ops.html:316',message:'Found by name (case-insensitive)',data:{searchValue:value,foundOpsName:operation.opsName,dbOpsName:operation.opsName},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+          } else {
+            fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'add-ops.html:316',message:'NOT FOUND by name',data:{searchValue:value,allOpsNames:allOperations?.map(o=>o.opsName)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+          }
+          // #endregion
+        }
+        
+        // #region agent log
+        fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'add-ops.html:318',message:'findOperationByNameOrId EXIT',data:{searchValue:value,found:!!operation,foundOpsName:operation?.opsName},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
+        // #endregion
+        return operation;
+      }
+
+      // Load operations for datalist
       async function loadOperations() {
         try {
           allOperations = await operationsAPI.getAll();
-          refreshAllDropdowns();
+          populateDatalist();
           updateAddButtonVisibility();
+          
+          // Also initialize multiple jobs section if it's visible
+          const multipleJobsAddOpsSection = document.getElementById('multipleJobsAddOpsSection');
+          if (multipleJobsAddOpsSection && multipleJobsAddOpsSection.style.display !== 'none') {
+            initializeMultipleJobsAddOpsSection();
+          }
         } catch (error) {
           console.error('Error loading operations:', error);
         }
       }
 
-      // Refresh all dropdowns in "Add New Ops" section
+      // Refresh all inputs in "Add New Ops" section (datalist is shared, so just update visibility)
       function refreshAllDropdowns() {
-        const selects = document.querySelectorAll('#addOpsBody .ops-select');
-        selects.forEach(select => {
-          populateDropdown(select);
-        });
+        // Datalist is shared, so we just need to update visibility
         updateAddButtonVisibility();
       }
 
@@ -261,22 +369,9 @@
           return 0;
         }
         
-        const currentlySelected = getCurrentlySelectedOpIds();
-        let availableCount = 0;
-        
-        allOperations.forEach(op => {
-          // Skip if already added for this job
-          if (alreadyAddedOpIds.has(op._id)) {
-            return;
-          }
-          // Skip if currently selected in a row
-          if (currentlySelected.has(op._id)) {
-            return;
-          }
-          availableCount++;
-        });
-        
-        return availableCount;
+        // Since users can now type custom names, we always show the add button
+        // if there are any operations loaded (they can always add custom ones)
+        return allOperations.length;
       }
 
       // Update visibility of Add button and Add New Ops section
@@ -297,16 +392,16 @@
         // Hide entire section only if:
         // 1. A job has been searched (hasSearchedJob === true)
         // 2. AND no operations available
-        // 3. AND no rows with selected ops
+        // 3. AND no rows with entered ops
         if (addNewOpsSection) {
           const rows = document.querySelectorAll('#addOpsBody .ops-row');
-          const hasSelectedOps = Array.from(rows).some(row => {
-            const select = row.querySelector('select[name="opsName"]');
-            return select && select.value;
+          const hasEnteredOps = Array.from(rows).some(row => {
+            const input = row.querySelector('input[name="opsName"]');
+            return input && input.value;
           });
           
-          // Only hide if job has been searched AND no available ops AND no selected ops
-          if (hasSearchedJob && allOperations.length > 0 && availableCount === 0 && !hasSelectedOps) {
+          // Only hide if job has been searched AND no available ops AND no entered ops
+          if (hasSearchedJob && allOperations.length === 0 && !hasEnteredOps) {
             addNewOpsSection.style.display = 'none';
           } else {
             addNewOpsSection.style.display = '';
@@ -325,50 +420,76 @@
           return { valid: false, message: `Qty / Book must be a valid number for operation "${operation.opsName}"` };
         }
         
+        // Only validate 1:1 type, validations for 1/x and 1*x are removed
         if (operation.type === '1:1') {
           if (qty !== 1) {
             return { valid: false, message: `Qty / Book must be exactly 1 for operation "${operation.opsName}"` };
-          }
-        } else if (operation.type === '1*x') {
-          // Must be integer >= 1
-          if (!Number.isInteger(qty)) {
-            return { valid: false, message: `Qty / Book must be an integer for operation "${operation.opsName}"` };
-          }
-          if (qty < 1) {
-            return { valid: false, message: `Qty / Book must be >= 1 for operation "${operation.opsName}"` };
-          }
-        } else if (operation.type === '1/x') {
-          // Must be > 0 and <= 1
-          if (qty <= 0) {
-            return { valid: false, message: `Qty / Book must be > 0 for operation "${operation.opsName}"` };
-          }
-          if (qty > 1) {
-            return { valid: false, message: `Qty / Book must be <= 1 for operation "${operation.opsName}"` };
           }
         }
         
         return { valid: true };
       }
 
+      // Helper: update column header based on selected operations
+      function updateColumnHeader(tableId) {
+        const table = document.getElementById(tableId);
+        if (!table) return;
+        
+        const headerCell = table.querySelector('thead th:nth-child(2)'); // Second column (Qty/Book)
+        if (!headerCell) return;
+        
+        const tbody = table.querySelector('tbody');
+        if (!tbody) return;
+        
+        const rows = tbody.querySelectorAll('.ops-row');
+        let headerText = 'Qty / Book'; // Default
+        let hasOneX = false;
+        let hasOneToOneOrOneX = false;
+        
+        // Check all entered operations to determine header
+        for (const row of rows) {
+          const opsInput = row.querySelector('input[name="opsName"]');
+          if (opsInput && opsInput.value) {
+            const operation = findOperationByNameOrId(opsInput.value);
+            if (operation) {
+              if (operation.type === '1/x') {
+                hasOneX = true;
+              } else if (operation.type === '1:1' || operation.type === '1*x') {
+                hasOneToOneOrOneX = true;
+              }
+            }
+          }
+        }
+        
+        // Determine header text: 1/x takes priority if present
+        if (hasOneX) {
+          headerText = 'Books / Ops';
+        } else if (hasOneToOneOrOneX) {
+          headerText = 'Ops / Book';
+        }
+        
+        headerCell.textContent = headerText;
+      }
+
       // Helper: update rate and rate/book for a given row
       function updateRowPricing(row) {
         if (!row) return;
 
-        const select = row.querySelector('select[name="opsName"]');
+        const opsInput = row.querySelector('input[name="opsName"]');
         const qtyInput = row.querySelector('input[name="qtyBook"]');
         const rateInput = row.querySelector('input[name="rate"]');
         const rateBookInput = row.querySelector('input[name="rateBook"]');
 
-        if (!select || !rateInput || !rateBookInput) return;
+        if (!opsInput || !rateInput || !rateBookInput) return;
 
         // Ensure rate fields are not editable by user
         rateInput.readOnly = true;
         rateBookInput.readOnly = true;
 
-        const opId = select.value;
-        const operation = allOperations.find(op => op._id === opId);
+        const opsValue = opsInput.value;
+        const operation = findOperationByNameOrId(opsValue);
 
-        // Default ratePerUnit to 0 if not found
+        // Default ratePerUnit to 0 if not found (allows custom operations with default rate)
         const ratePerUnit = operation ? Number(operation.ratePerUnit || 0) : 0;
 
         // Configure qty/book behavior based on operation type
@@ -381,25 +502,28 @@
               qtyInput.value = 1;
               qtyInput.readOnly = true;
             } else if (operation.type === '1*x') {
-              // User can type anything, validation on save
-              // Default to 1 if empty
-              if (!qtyInput.value || qtyInput.value.trim() === '') {
-                qtyInput.value = '1';
-              }
+              // User can type anything, keep blank initially
+              // Don't set default value
             } else if (operation.type === '1/x') {
-              // User can type anything, validation on save
-              // Default to 0.5 if empty
-              if (!qtyInput.value || qtyInput.value.trim() === '') {
-                qtyInput.value = '0.5';
-              }
+              // User can type anything, keep blank initially
+              // Don't set default value
             }
           }
         }
 
         rateInput.value = ratePerUnit;
 
+        // Calculate rate/book based on operation type
         const qty = qtyInput && qtyInput.value ? Number(qtyInput.value) : 0;
-        rateBookInput.value = qty * ratePerUnit;
+        if (operation && operation.type === '1/x' && qty > 0) {
+          // For 1/x: rate/book = rate * (1 / booksPerOps)
+          rateBookInput.value = (ratePerUnit * (1 / qty)).toFixed(2);
+        } else if (qty > 0) {
+          // For 1:1 and 1*x: rate/book = rate * qty
+          rateBookInput.value = (qty * ratePerUnit).toFixed(2);
+        } else {
+          rateBookInput.value = '';
+        }
       }
 
       // Job search
@@ -533,17 +657,7 @@
 
           const previousOps = result.previousOps;
 
-          // Track which operations are already added for this job
-          alreadyAddedOpIds.clear();
-          if (previousOps && Array.isArray(previousOps.operations)) {
-            previousOps.operations.forEach(op => {
-              if (op.opsId) {
-                alreadyAddedOpIds.add(op.opsId);
-              }
-            });
-          }
-
-          // Refresh all dropdowns to exclude already-added operations
+          // Refresh all dropdowns (show all operations)
           refreshAllDropdowns();
           // Update visibility of Add button and section
           updateAddButtonVisibility();
@@ -645,8 +759,7 @@
           // Mark that a job has been searched (even if not found)
           hasSearchedJob = true;
           
-          // Reset already-added operations (no previous ops for this job)
-          alreadyAddedOpIds.clear();
+          // Refresh all dropdowns (show all operations)
           refreshAllDropdowns();
           // Update visibility of Add button and section
           updateAddButtonVisibility();
@@ -668,14 +781,14 @@
           const lastRow = rows[rows.length - 1];
           if (!lastRow) return;
 
-          const lastSelect = lastRow.querySelector('select[name="opsName"]');
+          const lastOpsInput = lastRow.querySelector('input[name="opsName"]');
           const lastQty = lastRow.querySelector('input[name="qtyBook"]');
           const lastRate = lastRow.querySelector('input[name="rate"]');
           const lastRateBook = lastRow.querySelector('input[name="rateBook"]');
 
           const isFilled =
-            lastSelect &&
-            lastSelect.value.trim() !== "" &&
+            lastOpsInput &&
+            lastOpsInput.value.trim() !== "" &&
             lastQty &&
             lastQty.value.trim() !== "" &&
             lastRate &&
@@ -700,14 +813,13 @@
           const clone = templateRow.cloneNode(true);
 
           // Reset values in cloned row
-          const select = clone.querySelector('select[name="opsName"]');
+          const opsInput = clone.querySelector('input[name="opsName"]');
           const qtyInput = clone.querySelector('input[name="qtyBook"]');
           const rateInput = clone.querySelector('input[name="rate"]');
           const rateBookInput = clone.querySelector('input[name="rateBook"]');
 
-          if (select) {
-            populateDropdown(select);
-            select.value = "";
+          if (opsInput) {
+            opsInput.value = "";
           }
           if (qtyInput) qtyInput.value = "";
           if (rateInput) {
@@ -726,38 +838,61 @@
         });
       }
 
-      // Event delegation: when ops is selected, auto-populate rate and rate/book
-      if (opsBody) {
-        opsBody.addEventListener('change', (e) => {
-          const target = e.target;
-          if (target && target.name === 'opsName') {
-            const row = target.closest('.ops-row');
-            const previousValue = target.dataset.previousValue || '';
-            const currentValue = target.value;
-            
-            // Store current value for next change
-            target.dataset.previousValue = currentValue;
-            
-            if (currentValue) {
-              // An operation was selected
-              updateRowPricing(row);
-              
-              // Refresh all other dropdowns to remove the selected operation
-              const allSelects = opsBody.querySelectorAll('.ops-select');
-              allSelects.forEach(select => {
-                if (select !== target) {
-                  populateDropdown(select, currentValue);
+        // Event delegation: when ops name is entered, auto-populate rate and rate/book
+        if (opsBody) {
+          opsBody.addEventListener('input', (e) => {
+            const target = e.target;
+            if (target && target.name === 'opsName') {
+              const row = target.closest('.ops-row');
+              if (row) {
+                const opsValue = target.value.trim();
+                // Validate if operation exists in list
+                if (opsValue) {
+                  const operation = findOperationByNameOrId(opsValue);
+                  if (!operation) {
+                    // Show warning in the row or in the warning area
+                    if (addOpsWarning) {
+                      addOpsWarning.textContent = `"${opsValue}" is not in the operations list. Please select from the list.`;
+                      addOpsWarning.style.color = "#ef4444";
+                    }
+                  } else {
+                    // Clear warning if operation is found
+                    if (addOpsWarning && addOpsWarning.textContent.includes('is not in the operations list')) {
+                      addOpsWarning.textContent = "";
+                    }
+                  }
+                } else {
+                  // Clear warning if field is empty
+                  if (addOpsWarning && addOpsWarning.textContent.includes('is not in the operations list')) {
+                    addOpsWarning.textContent = "";
+                  }
                 }
-              });
-            } else if (previousValue) {
-              // Selection was cleared - refresh all dropdowns to add it back
-              refreshAllDropdowns();
+                
+                updateRowPricing(row);
+                // Update column header based on entered operations
+                updateColumnHeader('addOpsTable');
+                // Update visibility after input change
+                updateAddButtonVisibility();
+              }
             }
-            
-            // Update visibility after selection change
-            updateAddButtonVisibility();
-          }
-        });
+          });
+          
+          // Also validate on blur to catch when user leaves the field
+          opsBody.addEventListener('blur', (e) => {
+            const target = e.target;
+            if (target && target.name === 'opsName') {
+              const opsValue = target.value.trim();
+              if (opsValue) {
+                const operation = findOperationByNameOrId(opsValue);
+                if (!operation) {
+                  if (addOpsWarning) {
+                    addOpsWarning.textContent = `"${opsValue}" is not in the operations list. Please select from the list.`;
+                    addOpsWarning.style.color = "#ef4444";
+                  }
+                }
+              }
+            }
+          }, true);
 
         // When qty / book changes, recompute rate / book using current rate
         opsBody.addEventListener('input', (e) => {
@@ -772,19 +907,25 @@
 
             if (!qtyInput || !rateInput || !rateBookInput) return;
 
-            const select = row.querySelector('select[name="opsName"]');
-            const opId = select ? select.value : null;
-            const operation = opId
-              ? allOperations.find(op => op._id === opId)
+            const opsInput = row.querySelector('input[name="opsName"]');
+            const opsValue = opsInput ? opsInput.value : null;
+            const operation = opsValue
+              ? findOperationByNameOrId(opsValue)
               : null;
 
-            // Calculate rate/book based on current qty/book value (user can type anything)
+            // Calculate rate/book based on current qty/book value and operation type
             const qty = qtyInput.value ? parseFloat(qtyInput.value) : 0;
             const rate = rateInput.value ? parseFloat(rateInput.value) : 0;
             
-            // Only update rate/book if qty is valid number
-            if (!isNaN(qty) && !isNaN(rate)) {
-              rateBookInput.value = (qty * rate).toFixed(2);
+            // Only update rate/book if qty and rate are valid numbers
+            if (!isNaN(qty) && !isNaN(rate) && qty > 0) {
+              if (operation && operation.type === '1/x') {
+                // For 1/x: rate/book = rate * (1 / booksPerOps)
+                rateBookInput.value = (rate * (1 / qty)).toFixed(2);
+              } else {
+                // For 1:1 and 1*x: rate/book = rate * qty
+                rateBookInput.value = (qty * rate).toFixed(2);
+              }
             } else {
               rateBookInput.value = '';
             }
@@ -809,14 +950,21 @@
 
           // Validate all rows before processing
           for (const row of rows) {
-            const select = row.querySelector('select[name="opsName"]');
+            const opsInput = row.querySelector('input[name="opsName"]');
             const qtyInput = row.querySelector('input[name="qtyBook"]');
             const rateInput = row.querySelector('input[name="rate"]');
             const rateBookInput = row.querySelector('input[name="rateBook"]');
 
-            if (select?.value && qtyInput?.value && rateInput?.value && rateBookInput?.value) {
+            if (opsInput?.value && qtyInput?.value && rateInput?.value && rateBookInput?.value) {
               // Find the operation to validate qty/book
-              const operation = allOperations.find(op => op._id === select.value);
+              const opsValue = opsInput.value.trim();
+              const operation = findOperationByNameOrId(opsValue);
+              
+              // Check if operation exists in the list
+              if (!operation) {
+                addOpsWarning.textContent = `Operation "${opsValue}" is not in the list. Please select an operation from the list.`;
+                return; // Stop saving if operation not found
+              }
               
               // Validate qty/book based on operation type
               const validation = validateQtyBook(qtyInput.value, operation);
@@ -825,8 +973,9 @@
                 return; // Stop saving if validation fails
               }
               
+              // Use operation ID (operation must exist at this point)
               operations.push({
-                operationId: select.value,
+                operationId: operation._id,
                 qtyPerBook: parseFloat(qtyInput.value),
                 rate: parseFloat(rateInput.value),
                 ratePerBook: parseFloat(rateBookInput.value)
@@ -876,8 +1025,6 @@
             if (headerRow) headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th>';
             if (prevOpsBody) prevOpsBody.innerHTML = '';
 
-            // Reset already-added operations tracking
-            alreadyAddedOpIds.clear();
             // Reset job search flag
             hasSearchedJob = false;
 
@@ -888,9 +1035,7 @@
               baseRow.classList.add('ops-row');
               baseRow.innerHTML = `
                 <td>
-                  <select name="opsName" class="ops-select">
-                    <option value="">Select ops</option>
-                  </select>
+                  <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" />
                 </td>
                 <td>
                   <input type="text" name="qtyBook" />
@@ -903,8 +1048,7 @@
                 </td>
               `;
               opsBody.appendChild(baseRow);
-              // Re-populate the ops dropdown in the new row
-              loadOperations();
+              // Datalist is already populated, no need to reload
               // Update visibility after reset
               updateAddButtonVisibility();
             }
@@ -912,6 +1056,1048 @@
             addOpsWarning.textContent = error.message || 'Failed to save operations.';
           }
         });
+      }
+
+      // Function to clear single job form
+      function clearSingleJobForm() {
+        // Clear job number input
+        if (jobNumberInput) jobNumberInput.value = '';
+        
+        // Clear job details
+        const clientNameInput = document.getElementById('clientName');
+        const jobTitleInput = document.getElementById('jobTitle');
+        const qtyInput = document.getElementById('qty');
+        const productCatInput = document.getElementById('productCat');
+        const unitPriceInput = document.getElementById('unitPrice');
+        
+        if (clientNameInput) clientNameInput.value = '';
+        if (jobTitleInput) jobTitleInput.value = '';
+        if (qtyInput) qtyInput.value = '';
+        if (productCatInput) productCatInput.value = '';
+        if (unitPriceInput) unitPriceInput.value = '';
+        
+        // Clear previous ops table
+        const headerRow = document.getElementById('prevOpsHeader');
+        const prevOpsBody = document.getElementById('prevOpsBody');
+        if (headerRow) headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th>';
+        if (prevOpsBody) prevOpsBody.innerHTML = '<tr><td>-</td><td>-</td></tr>';
+        
+        // Clear add ops table
+        if (opsBody) {
+          opsBody.innerHTML = '';
+          const baseRow = document.createElement('tr');
+          baseRow.classList.add('ops-row');
+          baseRow.innerHTML = `
+            <td>
+              <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" />
+            </td>
+            <td>
+              <input type="text" name="qtyBook" />
+            </td>
+            <td>
+              <input type="number" name="rate" value="1" readonly />
+            </td>
+            <td>
+              <input type="number" name="rateBook" value="1" readonly />
+            </td>
+          `;
+          opsBody.appendChild(baseRow);
+          // Datalist is already populated, no need to do anything
+        }
+        
+        // Clear warnings
+        if (jobSearchError) {
+          jobSearchError.textContent = '';
+          jobSearchError.style.display = 'none';
+        }
+        if (addOpsWarning) addOpsWarning.textContent = '';
+        
+        // Reset flags
+        hasSearchedJob = false;
+        currentJobId = null;
+        
+        // Hide dropdown
+        if (jobNumberDropdown) jobNumberDropdown.style.display = 'none';
+      }
+      
+      // Toggle between single and multiple job mode
+      const jobModeToggle = document.getElementById('jobModeToggle');
+      const addJobBtn = document.getElementById('addJobBtn');
+      const multipleJobsContainer = document.getElementById('multipleJobsContainer');
+      
+      if (jobModeToggle) {
+        jobModeToggle.addEventListener('change', (e) => {
+          isMultipleJobMode = e.target.checked;
+          
+          // Find the sections to hide/show - these are panel--collapsible sections that are direct children of main
+          // but NOT the multipleJobsContainer
+          const mainElement = document.querySelector('main.app-main');
+          const sectionsToToggle = [];
+          
+          if (mainElement) {
+            Array.from(mainElement.children).forEach(section => {
+              if (section.tagName === 'SECTION' && 
+                  section.classList.contains('panel--collapsible') && 
+                  section.id !== 'multipleJobsContainer' &&
+                  section.id !== 'multipleJobsAddOpsSection') {
+                sectionsToToggle.push(section);
+              }
+            });
+          }
+          
+          if (isMultipleJobMode) {
+            // Switch to multiple job mode
+            // Reset all state variables FIRST
+            hasSearchedJob = false;
+            currentJobId = null;
+            currentSeriesId = null;
+            multipleJobs = [];
+            
+            // Clear job number input and dropdown
+            if (jobNumberInput) {
+              jobNumberInput.value = '';
+            }
+            const jobNumberDropdown = document.getElementById('jobNumberDropdown');
+            if (jobNumberDropdown) {
+              jobNumberDropdown.innerHTML = '';
+              jobNumberDropdown.style.display = 'none';
+            }
+            
+            // Clear all warnings
+            const jobSearchError = document.getElementById('jobSearchError');
+            if (jobSearchError) {
+              jobSearchError.textContent = '';
+              jobSearchError.style.display = 'none';
+            }
+            
+            // Clear single job form completely
+            clearSingleJobForm();
+            
+            // Collapse and hide all single job panels
+            sectionsToToggle.forEach(section => {
+              section.classList.add('panel-collapsed');
+              section.style.display = 'none';
+            });
+            
+            // Clear multiple jobs container - remove all child nodes
+            if (multipleJobsContainer) {
+              while (multipleJobsContainer.firstChild) {
+                multipleJobsContainer.removeChild(multipleJobsContainer.firstChild);
+              }
+              multipleJobsContainer.style.display = '';
+            }
+            
+            // Clear multiple jobs Add Ops body
+            const multipleJobsAddOpsBody = document.getElementById('multipleJobsAddOpsBody');
+            if (multipleJobsAddOpsBody) {
+              multipleJobsAddOpsBody.innerHTML = '';
+              // Add base row
+              const baseRow = document.createElement('tr');
+              baseRow.classList.add('ops-row');
+              baseRow.innerHTML = `
+                <td>
+                  <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" />
+                </td>
+                <td>
+                  <input type="text" name="qtyBook" />
+                </td>
+                <td>
+                  <input type="number" name="rate" value="1" readonly />
+                </td>
+                <td>
+                  <input type="number" name="rateBook" value="1" readonly />
+                </td>
+              `;
+              multipleJobsAddOpsBody.appendChild(baseRow);
+            }
+            
+            // Clear multiple jobs warning
+            const multipleJobsAddOpsWarning = document.getElementById('multipleJobsAddOpsWarning');
+            if (multipleJobsAddOpsWarning) {
+              multipleJobsAddOpsWarning.textContent = '';
+            }
+            
+            // Show Pull in Series checkbox
+            const pullInSeriesField = document.getElementById('pullInSeriesField');
+            if (pullInSeriesField) pullInSeriesField.style.display = '';
+            // Clear Pull in Series checkbox state
+            const pullInSeriesCheckbox = document.getElementById('pullInSeriesCheckbox');
+            if (pullInSeriesCheckbox) pullInSeriesCheckbox.checked = false;
+            
+            // Update button visibility and text
+            addJobBtn.style.display = '';
+            const jobSearchBtn = document.getElementById('jobSearchBtn');
+            if (jobSearchBtn) jobSearchBtn.style.display = 'none';
+            updateMultipleJobsAddButtonText();
+            
+            // Hide common Add New Ops section
+            const multipleJobsAddOpsSection = document.getElementById('multipleJobsAddOpsSection');
+            if (multipleJobsAddOpsSection) {
+              multipleJobsAddOpsSection.style.display = 'none';
+              multipleJobsAddOpsSection.classList.add('panel-collapsed');
+            }
+          } else {
+            // Switch to single job mode
+            // Reset all state variables FIRST
+            hasSearchedJob = false;
+            currentJobId = null;
+            currentSeriesId = null;
+            multipleJobs = [];
+            
+            // Clear job number input and dropdown
+            if (jobNumberInput) {
+              jobNumberInput.value = '';
+            }
+            const jobNumberDropdown = document.getElementById('jobNumberDropdown');
+            if (jobNumberDropdown) {
+              jobNumberDropdown.innerHTML = '';
+              jobNumberDropdown.style.display = 'none';
+            }
+            
+            // Clear all warnings
+            const jobSearchError = document.getElementById('jobSearchError');
+            if (jobSearchError) {
+              jobSearchError.textContent = '';
+              jobSearchError.style.display = 'none';
+            }
+            
+            // Clear multiple jobs container - remove all child nodes
+            if (multipleJobsContainer) {
+              while (multipleJobsContainer.firstChild) {
+                multipleJobsContainer.removeChild(multipleJobsContainer.firstChild);
+              }
+              multipleJobsContainer.style.display = 'none';
+            }
+            
+            // Clear multiple jobs Add Ops body
+            const multipleJobsAddOpsBody = document.getElementById('multipleJobsAddOpsBody');
+            if (multipleJobsAddOpsBody) {
+              multipleJobsAddOpsBody.innerHTML = '';
+              // Add base row
+              const baseRow = document.createElement('tr');
+              baseRow.classList.add('ops-row');
+              baseRow.innerHTML = `
+                <td>
+                  <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" />
+                </td>
+                <td>
+                  <input type="text" name="qtyBook" />
+                </td>
+                <td>
+                  <input type="number" name="rate" value="1" readonly />
+                </td>
+                <td>
+                  <input type="number" name="rateBook" value="1" readonly />
+                </td>
+              `;
+              multipleJobsAddOpsBody.appendChild(baseRow);
+            }
+            
+            // Clear multiple jobs warning
+            const multipleJobsAddOpsWarning = document.getElementById('multipleJobsAddOpsWarning');
+            if (multipleJobsAddOpsWarning) {
+              multipleJobsAddOpsWarning.textContent = '';
+            }
+            
+            // Hide Pull in Series checkbox
+            const pullInSeriesField = document.getElementById('pullInSeriesField');
+            if (pullInSeriesField) pullInSeriesField.style.display = 'none';
+            // Clear Pull in Series checkbox state
+            const pullInSeriesCheckbox = document.getElementById('pullInSeriesCheckbox');
+            if (pullInSeriesCheckbox) pullInSeriesCheckbox.checked = false;
+            
+            // Update button visibility and text
+            addJobBtn.style.display = 'none';
+            const jobSearchBtn = document.getElementById('jobSearchBtn');
+            if (jobSearchBtn) jobSearchBtn.style.display = '';
+            const addJobBtnReset = document.getElementById('addJobBtn');
+            if (addJobBtnReset) addJobBtnReset.textContent = 'Add';
+            
+            // Clear all single job form fields
+            clearSingleJobForm();
+            
+            // Show single job sections (keep them expanded, don't collapse)
+            sectionsToToggle.forEach(section => {
+              section.classList.remove('panel-collapsed'); // Remove collapsed class to keep them expanded
+              section.style.display = '';
+            });
+            
+            // Hide common Add New Ops section
+            const multipleJobsAddOpsSection = document.getElementById('multipleJobsAddOpsSection');
+            if (multipleJobsAddOpsSection) {
+              multipleJobsAddOpsSection.style.display = 'none';
+              multipleJobsAddOpsSection.classList.add('panel-collapsed');
+            }
+          }
+        });
+      }
+
+      // Helper function to add a single job to multiple jobs list
+      async function addJobToMultipleList(jobNumber) {
+        // Check if job already exists
+        if (multipleJobs.some(job => job.jobNumber === jobNumber)) {
+          return false; // Job already exists
+        }
+
+        try {
+          // Fetch job details
+          const jobDetails = await jobsAPI.getJobDetails(jobNumber);
+          
+          // Create job object
+          const jobData = {
+            jobNumber,
+            jobDetails,
+            previousOps: null,
+            expanded: false
+          };
+
+          // Try to fetch previous ops
+          try {
+            const result = await jobsAPI.search(jobNumber);
+            jobData.previousOps = result.previousOps;
+          } catch (error) {
+            console.error('Error fetching previous ops:', error);
+          }
+
+          // Add to multiple jobs array
+          multipleJobs.push(jobData);
+
+          // Create expandable row
+          createJobRow(jobData);
+
+          return true; // Successfully added
+        } catch (error) {
+          console.error(`Error adding job ${jobNumber}:`, error);
+          return false; // Failed to add
+        }
+      }
+
+      // Add job to multiple jobs list
+      if (addJobBtn) {
+        addJobBtn.addEventListener('click', async () => {
+          const jobNumber = jobNumberInput.value.trim();
+          const pullInSeriesCheckbox = document.getElementById('pullInSeriesCheckbox');
+          const shouldPullSeries = pullInSeriesCheckbox && pullInSeriesCheckbox.checked;
+          
+          if (!jobNumber) {
+            jobSearchError.textContent = 'Please enter a job number.';
+            jobSearchError.style.display = 'block';
+            return;
+          }
+
+          // Check if job already exists
+          if (multipleJobs.some(job => job.jobNumber === jobNumber)) {
+            jobSearchError.textContent = 'This job number is already added.';
+            jobSearchError.style.display = 'block';
+            return;
+          }
+
+          try {
+            let jobNumbersToAdd = [jobNumber];
+
+            // If "Pull in Series" is checked, search for the series
+            if (shouldPullSeries) {
+              try {
+                const seriesResult = await seriesAPI.searchByJobNumber(jobNumber);
+                if (seriesResult.found && seriesResult.jobNumbers && seriesResult.jobNumbers.length > 0) {
+                  // Use all job numbers from the series
+                  jobNumbersToAdd = seriesResult.jobNumbers;
+                  // Store the series ID so we don't create a new series when saving
+                  currentSeriesId = seriesResult.seriesId || null;
+                  console.log(`Found series with ${jobNumbersToAdd.length} job numbers, series ID: ${currentSeriesId}`);
+                }
+              } catch (seriesError) {
+                console.error('Error searching series:', seriesError);
+                // Continue with just the entered job number if series search fails
+                currentSeriesId = null; // Clear series ID if search fails
+              }
+            } else {
+              // If not pulling series, clear any existing series ID
+              currentSeriesId = null;
+            }
+
+            // Add all job numbers (filter out duplicates)
+            const existingJobNumbers = new Set(multipleJobs.map(job => job.jobNumber));
+            const jobsToAdd = jobNumbersToAdd.filter(jn => !existingJobNumbers.has(jn));
+            
+            if (jobsToAdd.length === 0) {
+              jobSearchError.textContent = 'All job numbers from the series are already added.';
+              jobSearchError.style.display = 'block';
+              return;
+            }
+
+            // Add all jobs
+            const addPromises = jobsToAdd.map(jn => addJobToMultipleList(jn));
+            const results = await Promise.all(addPromises);
+            const successCount = results.filter(r => r === true).length;
+
+            if (successCount > 0) {
+              // Show common Add New Ops section (expanded, not collapsed)
+              const multipleJobsAddOpsSection = document.getElementById('multipleJobsAddOpsSection');
+              if (multipleJobsAddOpsSection) {
+                multipleJobsAddOpsSection.style.display = '';
+                multipleJobsAddOpsSection.classList.remove('panel-collapsed'); // Keep it expanded
+                // Initialize the common section - populate dropdowns
+                initializeMultipleJobsAddOpsSection();
+              }
+
+              // Clear input
+              jobNumberInput.value = '';
+              jobSearchError.style.display = 'none';
+              
+              if (shouldPullSeries && successCount > 1) {
+                jobSearchError.textContent = `Added ${successCount} job(s) from series.`;
+                jobSearchError.style.color = '#4ade80';
+                jobSearchError.style.display = 'block';
+                setTimeout(() => {
+                  jobSearchError.style.display = 'none';
+                }, 3000);
+              }
+            } else {
+              jobSearchError.textContent = 'Error fetching job details. Please check the job number(s).';
+              jobSearchError.style.display = 'block';
+            }
+          } catch (error) {
+            jobSearchError.textContent = 'Error fetching job details. Please check the job number.';
+            jobSearchError.style.display = 'block';
+          }
+        });
+      }
+
+      // Create expandable row for a job
+      function createJobRow(jobData) {
+        const jobRowId = `job-row-${jobData.jobNumber}`;
+        const rowDiv = document.createElement('div');
+        rowDiv.id = jobRowId;
+        rowDiv.classList.add('panel', 'panel--collapsible');
+        rowDiv.style.marginTop = '16px';
+        
+        // Header with job number
+        const header = document.createElement('header');
+        header.classList.add('panel-header');
+        header.style.cursor = 'pointer';
+        header.innerHTML = `<h3>Job: ${jobData.jobNumber}</h3>`;
+        
+        // Body with job sections
+        const body = document.createElement('div');
+        body.classList.add('panel-body');
+        
+        // Make header clickable to expand/collapse
+        header.addEventListener('click', () => {
+          rowDiv.classList.toggle('panel-collapsed');
+          jobData.expanded = !rowDiv.classList.contains('panel-collapsed');
+        });
+        
+        // Job Details Section
+        const jobDetailsSection = createJobDetailsSection(jobData);
+        body.appendChild(jobDetailsSection);
+        
+        // Previous Ops Section
+        const prevOpsSection = createPreviousOpsSection(jobData);
+        body.appendChild(prevOpsSection);
+        
+        // Don't add individual Add New Ops section - use common one instead
+        
+        rowDiv.appendChild(header);
+        rowDiv.appendChild(body);
+        multipleJobsContainer.appendChild(rowDiv);
+        
+        // Initially collapsed
+        rowDiv.classList.add('panel-collapsed');
+      }
+
+      // Create job details section for a job
+      function createJobDetailsSection(jobData) {
+        const section = document.createElement('section');
+        section.classList.add('panel', 'panel--collapsible');
+        
+        const header = document.createElement('header');
+        header.classList.add('panel-header');
+        header.innerHTML = '<h3>Job Details</h3>';
+        
+        const body = document.createElement('div');
+        body.classList.add('panel-body', 'job-details-grid');
+        body.innerHTML = `
+          <div class="field">
+            <label>Client Name</label>
+            <input type="text" value="${jobData.jobDetails.clientName || ''}" readonly />
+          </div>
+          <div class="field">
+            <label>Job Title</label>
+            <input type="text" value="${jobData.jobDetails.jobTitle || ''}" readonly />
+          </div>
+          <div class="field">
+            <label>Qty</label>
+            <input type="number" value="${jobData.jobDetails.qty || 0}" readonly />
+          </div>
+          <div class="field">
+            <label>Product Cat</label>
+            <input type="text" value="${jobData.jobDetails.productCat || ''}" readonly />
+          </div>
+          <div class="field">
+            <label>Unit Price</label>
+            <input type="text" value="${(jobData.jobDetails.unitPrice || 0).toFixed(2)}" readonly />
+          </div>
+        `;
+        
+        section.appendChild(header);
+        section.appendChild(body);
+        return section;
+      }
+
+      // Create previous ops section for a job
+      function createPreviousOpsSection(jobData) {
+        const section = document.createElement('section');
+        section.classList.add('panel', 'panel--collapsible');
+        
+        const header = document.createElement('header');
+        header.classList.add('panel-header');
+        header.innerHTML = '<h3>Previous Ops</h3>';
+        
+        const body = document.createElement('div');
+        body.classList.add('panel-body');
+        
+        const tableWrapper = document.createElement('div');
+        tableWrapper.classList.add('table-wrapper');
+        
+        const table = document.createElement('table');
+        table.classList.add('data-table');
+        
+        const thead = document.createElement('thead');
+        const tbody = document.createElement('tbody');
+        
+        // Populate previous ops
+        if (jobData.previousOps && Array.isArray(jobData.previousOps.operations) && jobData.previousOps.operations.length > 0) {
+          const headerRow = document.createElement('tr');
+          headerRow.innerHTML = '<th>Ops</th>';
+          
+          if (jobData.previousOps.contractors && Array.isArray(jobData.previousOps.contractors) && jobData.previousOps.contractors.length > 0) {
+            jobData.previousOps.contractors.forEach(c => {
+              const th = document.createElement('th');
+              th.textContent = `${c.name} (Completed Qty)`;
+              headerRow.appendChild(th);
+            });
+            
+            const pendingTh = document.createElement('th');
+            pendingTh.textContent = 'Pending';
+            headerRow.appendChild(pendingTh);
+            
+            jobData.previousOps.operations.forEach(op => {
+              const row = document.createElement('tr');
+              let cellsHtml = `<td>${op.opsName}</td>`;
+              
+              jobData.previousOps.contractors.forEach(c => {
+                const qty = (op.quantitiesByContractor && op.quantitiesByContractor[c.contractorId]) || 0;
+                cellsHtml += `<td>${qty}</td>`;
+              });
+              
+              const pending = op.pending !== undefined ? op.pending : (op.totalOpsQty || 0);
+              cellsHtml += `<td>${pending}</td>`;
+              
+              row.innerHTML = cellsHtml;
+              tbody.appendChild(row);
+            });
+          } else {
+            headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th><th>Pending</th>';
+            jobData.previousOps.operations.forEach(op => {
+              const row = document.createElement('tr');
+              const pending = op.pending !== undefined ? op.pending : (op.totalOpsQty || 0);
+              row.innerHTML = `<td>${op.opsName}</td><td>0</td><td>${pending}</td>`;
+              tbody.appendChild(row);
+            });
+          }
+          
+          thead.appendChild(headerRow);
+        } else {
+          thead.innerHTML = '<tr><th>Ops</th><th>Completed Qty</th><th>Pending</th></tr>';
+        }
+        
+        table.appendChild(thead);
+        table.appendChild(tbody);
+        tableWrapper.appendChild(table);
+        body.appendChild(tableWrapper);
+        
+        section.appendChild(header);
+        section.appendChild(body);
+        return section;
+      }
+
+      // Initialize common Add New Ops section for multiple jobs
+      function initializeMultipleJobsAddOpsSection() {
+        const opsBody = document.getElementById('multipleJobsAddOpsBody');
+        if (!opsBody) return;
+        
+        // Ensure operations are loaded
+        if (allOperations.length === 0) {
+          // Operations not loaded yet, wait a bit and try again
+          setTimeout(() => {
+            initializeMultipleJobsAddOpsSection();
+          }, 200);
+          return;
+        }
+        
+        // Clear and create initial row if needed
+        if (opsBody.children.length === 0) {
+          const baseRow = document.createElement('tr');
+          baseRow.classList.add('ops-row');
+          baseRow.innerHTML = `
+            <td>
+              <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" />
+            </td>
+            <td>
+              <input type="text" name="qtyBook" />
+            </td>
+            <td>
+              <input type="number" name="rate" value="1" readonly />
+            </td>
+            <td>
+              <input type="number" name="rateBook" value="1" readonly />
+            </td>
+          `;
+          opsBody.appendChild(baseRow);
+        }
+        
+        // Datalist is already populated globally, no need to do anything here
+      }
+      
+      // Create add ops section for a job (no longer used, kept for reference)
+      function createAddOpsSection(jobData) {
+        const section = document.createElement('section');
+        section.classList.add('panel', 'panel--collapsible');
+        
+        const header = document.createElement('header');
+        header.classList.add('panel-header');
+        header.innerHTML = '<h3>Add New Ops</h3>';
+        
+        const body = document.createElement('div');
+        body.classList.add('panel-body');
+        
+        const tableWrapper = document.createElement('div');
+        tableWrapper.classList.add('table-wrapper');
+        
+        const table = document.createElement('table');
+        table.classList.add('data-table');
+        table.innerHTML = `
+          <thead>
+            <tr>
+              <th>Ops Name</th>
+              <th>Qty / Book</th>
+              <th>Rate</th>
+              <th>Rate / Book</th>
+            </tr>
+          </thead>
+          <tbody class="add-ops-body-${jobData.jobNumber}">
+            <tr class="ops-row">
+              <td>
+                <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" />
+              </td>
+              <td>
+                <input type="text" name="qtyBook" />
+              </td>
+              <td>
+                <input type="number" name="rate" value="1" readonly />
+              </td>
+              <td>
+                <input type="number" name="rateBook" value="1" readonly />
+              </td>
+            </tr>
+          </tbody>
+        `;
+        
+        tableWrapper.appendChild(table);
+        body.appendChild(tableWrapper);
+        
+        const buttonRow = document.createElement('div');
+        buttonRow.classList.add('button-row');
+        buttonRow.innerHTML = `
+          <button class="secondary-btn add-ops-row-btn" data-job="${jobData.jobNumber}">Add</button>
+          <button class="primary-btn primary-btn--sm save-ops-btn" data-job="${jobData.jobNumber}">Save</button>
+        `;
+        body.appendChild(buttonRow);
+        
+        const warning = document.createElement('p');
+        warning.classList.add('inline-warning');
+        warning.id = `addOpsWarning-${jobData.jobNumber}`;
+        body.appendChild(warning);
+        
+        section.appendChild(header);
+        section.appendChild(body);
+        
+        // Datalist is already populated globally, no need to initialize
+        
+        return section;
+      }
+
+      // Function to update the ADD button text based on Pull in Series checkbox
+      function updateMultipleJobsAddButtonText() {
+        const addJobBtn = document.getElementById('addJobBtn');
+        const pullInSeriesCheckbox = document.getElementById('pullInSeriesCheckbox');
+        
+        if (addJobBtn && pullInSeriesCheckbox) {
+          if (pullInSeriesCheckbox.checked) {
+            addJobBtn.textContent = 'Search';
+          } else {
+            addJobBtn.textContent = 'Add';
+          }
+        }
+      }
+
+      // Event handlers for common Add New Ops section in multiple job mode
+      const multipleJobsAddOpsRowBtn = document.getElementById('multipleJobsAddOpsRowBtn');
+      const multipleJobsSaveOpsBtn = document.getElementById('multipleJobsSaveOpsBtn');
+      const multipleJobsAddOpsBody = document.getElementById('multipleJobsAddOpsBody');
+      const multipleJobsAddOpsWarning = document.getElementById('multipleJobsAddOpsWarning');
+      
+      // Add event listener to Pull in Series checkbox to update button text and clear series
+      const pullInSeriesCheckbox = document.getElementById('pullInSeriesCheckbox');
+      if (pullInSeriesCheckbox) {
+        pullInSeriesCheckbox.addEventListener('change', () => {
+          if (isMultipleJobMode) {
+            updateMultipleJobsAddButtonText();
+            
+            // If unchecked, clear the fetched series
+            if (!pullInSeriesCheckbox.checked) {
+              // Clear series ID
+              currentSeriesId = null;
+              
+              // Clear all jobs from multipleJobs array
+              multipleJobs = [];
+              
+              // Clear the multiple jobs container
+              const multipleJobsContainer = document.getElementById('multipleJobsContainer');
+              if (multipleJobsContainer) {
+                multipleJobsContainer.innerHTML = '';
+              }
+              
+              // Hide the Add New Ops section
+              const multipleJobsAddOpsSection = document.getElementById('multipleJobsAddOpsSection');
+              if (multipleJobsAddOpsSection) {
+                multipleJobsAddOpsSection.style.display = 'none';
+              }
+              
+              // Clear job number input
+              const jobNumberInput = document.getElementById('jobNumber');
+              if (jobNumberInput) {
+                jobNumberInput.value = '';
+              }
+              
+              // Clear any error messages
+              const jobSearchError = document.getElementById('jobSearchError');
+              if (jobSearchError) {
+                jobSearchError.textContent = '';
+                jobSearchError.style.display = 'none';
+              }
+            }
+          }
+        });
+      }
+      
+      // Add row button for common Add New Ops section
+      if (multipleJobsAddOpsRowBtn && multipleJobsAddOpsBody) {
+        multipleJobsAddOpsRowBtn.addEventListener('click', () => {
+          const rows = multipleJobsAddOpsBody.querySelectorAll('.ops-row');
+          const lastRow = rows[rows.length - 1];
+          if (!lastRow) return;
+          
+          const lastOpsInput = lastRow.querySelector('input[name="opsName"]');
+          const lastQty = lastRow.querySelector('input[name="qtyBook"]');
+          const lastRate = lastRow.querySelector('input[name="rate"]');
+          const lastRateBook = lastRow.querySelector('input[name="rateBook"]');
+          
+          const isFilled = lastOpsInput && lastOpsInput.value.trim() !== "" &&
+            lastQty && lastQty.value.trim() !== "" &&
+            lastRate && lastRate.value.trim() !== "" &&
+            lastRateBook && lastRateBook.value.trim() !== "";
+          
+          if (!isFilled) {
+            if (multipleJobsAddOpsWarning) {
+              multipleJobsAddOpsWarning.textContent = "Please fill Ops Name, Qty / Book, Rate, and Rate / Book before adding a new row.";
+              multipleJobsAddOpsWarning.style.color = "#ef4444";
+            }
+            return;
+          }
+          
+          const clone = lastRow.cloneNode(true);
+          
+          // Reset values in cloned row
+          const opsInput = clone.querySelector('input[name="opsName"]');
+          const qtyInput = clone.querySelector('input[name="qtyBook"]');
+          const rateInput = clone.querySelector('input[name="rate"]');
+          const rateBookInput = clone.querySelector('input[name="rateBook"]');
+          
+          if (opsInput) {
+            opsInput.value = "";
+          }
+          if (qtyInput) qtyInput.value = "";
+          if (rateInput) {
+            rateInput.value = "1";
+            rateInput.readOnly = true;
+          }
+          if (rateBookInput) {
+            rateBookInput.value = "1";
+            rateBookInput.readOnly = true;
+          }
+          
+          multipleJobsAddOpsBody.appendChild(clone);
+          
+          // Clear warning
+          if (multipleJobsAddOpsWarning) multipleJobsAddOpsWarning.textContent = "";
+        });
+      }
+      
+      // Save button for common Add New Ops section - saves to all jobs
+      if (multipleJobsSaveOpsBtn && multipleJobsAddOpsBody) {
+        multipleJobsSaveOpsBtn.addEventListener('click', async () => {
+          if (multipleJobs.length === 0) {
+            if (multipleJobsAddOpsWarning) {
+              multipleJobsAddOpsWarning.textContent = "Please add at least one job first.";
+              multipleJobsAddOpsWarning.style.color = "#ef4444";
+            }
+            return;
+          }
+          
+          const rows = multipleJobsAddOpsBody.querySelectorAll('.ops-row');
+          const operations = [];
+          
+          // Validate all rows before processing
+          for (const row of rows) {
+            const opsInput = row.querySelector('input[name="opsName"]');
+            const qtyInput = row.querySelector('input[name="qtyBook"]');
+            const rateInput = row.querySelector('input[name="rate"]');
+            const rateBookInput = row.querySelector('input[name="rateBook"]');
+            
+            if (opsInput?.value && qtyInput?.value && rateInput?.value && rateBookInput?.value) {
+              const opsValue = opsInput.value.trim();
+              const operation = findOperationByNameOrId(opsValue);
+              
+              // Check if operation exists in the list
+              if (!operation) {
+                if (multipleJobsAddOpsWarning) {
+                  multipleJobsAddOpsWarning.textContent = `Operation "${opsValue}" is not in the list. Please select an operation from the list.`;
+                  multipleJobsAddOpsWarning.style.color = "#ef4444";
+                }
+                return; // Stop saving if operation not found
+              }
+              
+              // Validate qty/book based on operation type
+              const validation = validateQtyBook(qtyInput.value, operation);
+              if (!validation.valid) {
+                if (multipleJobsAddOpsWarning) {
+                  multipleJobsAddOpsWarning.textContent = validation.message;
+                  multipleJobsAddOpsWarning.style.color = "#ef4444";
+                }
+                return;
+              }
+              
+              // Use operation ID (operation must exist at this point)
+              operations.push({
+                operationId: operation._id,
+                qtyPerBook: parseFloat(qtyInput.value),
+                rate: parseFloat(rateInput.value),
+                ratePerBook: parseFloat(rateBookInput.value)
+              });
+            }
+          }
+          
+          if (operations.length === 0) {
+            if (multipleJobsAddOpsWarning) {
+              multipleJobsAddOpsWarning.textContent = "Please add at least one operation.";
+              multipleJobsAddOpsWarning.style.color = "#ef4444";
+            }
+            return;
+          }
+          
+          // Save operations to all jobs
+          const savePromises = multipleJobs.map(async (jobData) => {
+            const extraJobData = {
+              clientName: jobData.jobDetails.clientName || '',
+              jobTitle: jobData.jobDetails.jobTitle || '',
+              qty: jobData.jobDetails.qty || 0,
+              productCat: jobData.jobDetails.productCat || '',
+              unitPrice: jobData.jobDetails.unitPrice || 0
+            };
+            
+            return jobsAPI.saveJobOpsMaster(jobData.jobNumber, operations, extraJobData);
+          });
+          
+          try {
+            await Promise.all(savePromises);
+            
+            // Save job numbers to Series collection only if not pulled from existing series
+            if (!currentSeriesId) {
+              const jobNumbers = multipleJobs.map(jobData => jobData.jobNumber);
+              try {
+                await seriesAPI.create(jobNumbers);
+                console.log('Job numbers saved to Series:', jobNumbers);
+              } catch (seriesError) {
+                console.error('Error saving to Series (non-critical):', seriesError);
+                // Don't fail the entire operation if Series save fails
+              }
+            } else {
+              console.log('Skipping series creation - using existing series ID:', currentSeriesId);
+            }
+            
+            // Clear the series ID after save
+            currentSeriesId = null;
+            
+            if (multipleJobsAddOpsWarning) {
+              multipleJobsAddOpsWarning.textContent = "";
+            }
+            alert(`Operations saved successfully to all ${multipleJobs.length} job(s)!`);
+            
+            // Clear the entire screen
+            // Clear multiple jobs array
+            multipleJobs = [];
+            
+            // Clear multiple jobs container (remove all job rows)
+            const multipleJobsContainer = document.getElementById('multipleJobsContainer');
+            if (multipleJobsContainer) {
+              multipleJobsContainer.innerHTML = '';
+            }
+            
+            // Clear job number input
+            if (jobNumberInput) {
+              jobNumberInput.value = '';
+            }
+            
+            // Clear Pull in Series checkbox
+            const pullInSeriesCheckbox = document.getElementById('pullInSeriesCheckbox');
+            if (pullInSeriesCheckbox) {
+              pullInSeriesCheckbox.checked = false;
+            }
+            
+            // Clear job search error
+            if (jobSearchError) {
+              jobSearchError.textContent = '';
+              jobSearchError.style.display = 'none';
+            }
+            
+            // Hide job number dropdown
+            if (jobNumberDropdown) {
+              jobNumberDropdown.style.display = 'none';
+            }
+            
+            // Hide the Add New Ops section
+            const multipleJobsAddOpsSection = document.getElementById('multipleJobsAddOpsSection');
+            if (multipleJobsAddOpsSection) {
+              multipleJobsAddOpsSection.style.display = 'none';
+            }
+            
+            // Reset the add ops table
+            multipleJobsAddOpsBody.innerHTML = '';
+            const baseRow = document.createElement('tr');
+            baseRow.classList.add('ops-row');
+            baseRow.innerHTML = `
+              <td>
+                <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" />
+              </td>
+              <td>
+                <input type="text" name="qtyBook" />
+              </td>
+              <td>
+                <input type="number" name="rate" value="1" readonly />
+              </td>
+              <td>
+                <input type="number" name="rateBook" value="1" readonly />
+              </td>
+            `;
+            multipleJobsAddOpsBody.appendChild(baseRow);
+            // Datalist is already populated, no need to do anything
+          } catch (error) {
+            if (multipleJobsAddOpsWarning) {
+              multipleJobsAddOpsWarning.textContent = error.message || 'Failed to save operations to one or more jobs.';
+              multipleJobsAddOpsWarning.style.color = "#ef4444";
+            }
+          }
+        });
+      }
+      
+      // Event handlers for ops input and qty input in common Add New Ops section
+      if (multipleJobsAddOpsBody) {
+        // Handle ops name input
+        multipleJobsAddOpsBody.addEventListener('input', (e) => {
+          if (e.target && e.target.name === 'opsName') {
+            const row = e.target.closest('.ops-row');
+            if (row) {
+              const opsValue = e.target.value.trim();
+              // Validate if operation exists in list
+              if (opsValue) {
+                const operation = findOperationByNameOrId(opsValue);
+                if (!operation) {
+                  // Show warning
+                  if (multipleJobsAddOpsWarning) {
+                    multipleJobsAddOpsWarning.textContent = `"${opsValue}" is not in the operations list. Please select from the list.`;
+                    multipleJobsAddOpsWarning.style.color = "#ef4444";
+                  }
+                } else {
+                  // Clear warning if operation is found
+                  if (multipleJobsAddOpsWarning && multipleJobsAddOpsWarning.textContent.includes('is not in the operations list')) {
+                    multipleJobsAddOpsWarning.textContent = "";
+                  }
+                }
+              } else {
+                // Clear warning if field is empty
+                if (multipleJobsAddOpsWarning && multipleJobsAddOpsWarning.textContent.includes('is not in the operations list')) {
+                  multipleJobsAddOpsWarning.textContent = "";
+                }
+              }
+              
+              updateRowPricing(row);
+              // Update column header based on entered operations
+              updateColumnHeader('multipleJobsAddOpsTable');
+            }
+          }
+          
+          // Handle qty input
+          if (e.target && e.target.name === 'qtyBook') {
+            const row = e.target.closest('.ops-row');
+            if (!row) return;
+            
+            const qtyInput = row.querySelector('input[name="qtyBook"]');
+            const rateInput = row.querySelector('input[name="rate"]');
+            const rateBookInput = row.querySelector('input[name="rateBook"]');
+            
+            if (!qtyInput || !rateInput || !rateBookInput) return;
+            
+            const opsInput = row.querySelector('input[name="opsName"]');
+            const opsValue = opsInput ? opsInput.value : null;
+            const operation = opsValue
+              ? findOperationByNameOrId(opsValue)
+              : null;
+            
+            const qty = qtyInput.value ? parseFloat(qtyInput.value) : 0;
+            const rate = rateInput.value ? parseFloat(rateInput.value) : 0;
+            
+            // Only update rate/book if qty and rate are valid numbers
+            if (!isNaN(qty) && !isNaN(rate) && qty > 0) {
+              if (operation && operation.type === '1/x') {
+                // For 1/x: rate/book = rate * (1 / booksPerOps)
+                rateBookInput.value = (rate * (1 / qty)).toFixed(2);
+              } else {
+                // For 1:1 and 1*x: rate/book = rate * qty
+                rateBookInput.value = (qty * rate).toFixed(2);
+              }
+            } else {
+              rateBookInput.value = '';
+            }
+          }
+        });
+        
+        // Also validate on blur to catch when user leaves the field
+        multipleJobsAddOpsBody.addEventListener('blur', (e) => {
+          if (e.target && e.target.name === 'opsName') {
+            const opsValue = e.target.value.trim();
+            if (opsValue) {
+              const operation = findOperationByNameOrId(opsValue);
+              if (!operation) {
+                if (multipleJobsAddOpsWarning) {
+                  multipleJobsAddOpsWarning.textContent = `"${opsValue}" is not in the operations list. Please select from the list.`;
+                  multipleJobsAddOpsWarning.style.color = "#ef4444";
+                }
+              }
+            }
+          }
+        }, true);
       }
 
       // Load operations on page load

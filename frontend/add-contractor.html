@@ -65,11 +65,12 @@
                   <tr>
                     <th>Contractor Name</th>
                     <th>Creation Date</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody id="contractorsTableBody">
                   <tr>
-                    <td colspan="2" style="text-align: center; color: var(--text-muted);">
+                    <td colspan="3" style="text-align: center; color: var(--text-muted);">
                       Loading contractors...
                     </td>
                   </tr>
@@ -116,7 +117,7 @@
           if (contractors.length === 0) {
             contractorsTableBody.innerHTML = `
               <tr>
-                <td colspan="2" style="text-align: center; color: var(--text-muted);">
+                <td colspan="3" style="text-align: center; color: var(--text-muted);">
                   No contractors found. Add your first contractor above.
                 </td>
               </tr>
@@ -125,20 +126,133 @@
           }
 
           contractorsTableBody.innerHTML = contractors.map(contractor => `
-            <tr>
-              <td>${contractor.name}</td>
+            <tr data-id="${contractor._id}">
+              <td>
+                <span class="contractor-name-display">${contractor.name}</span>
+                <input type="text" class="contractor-name-edit" value="${contractor.name}" style="display: none; width: 100%;">
+              </td>
               <td>${formatDate(contractor.creationDate)}</td>
+              <td>
+                <button class="edit-btn" data-id="${contractor._id}" style="margin-right: 8px;">Edit</button>
+                <button class="delete-btn" data-id="${contractor._id}" style="background-color: #ef4444; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer;">Delete</button>
+              </td>
             </tr>
           `).join('');
+          
+          // Attach event listeners for edit and delete buttons
+          attachContractorEventListeners();
         } catch (error) {
           console.error('Error loading contractors:', error);
           contractorsTableBody.innerHTML = `
             <tr>
-              <td colspan="2" style="text-align: center; color: #ef4444;">
+              <td colspan="3" style="text-align: center; color: #ef4444;">
                 Error loading contractors. Please refresh the page.
               </td>
             </tr>
           `;
+        }
+      }
+
+      // Attach event listeners for edit and delete buttons
+      function attachContractorEventListeners() {
+        // Edit buttons
+        document.querySelectorAll('.edit-btn').forEach(btn => {
+          btn.addEventListener('click', async function() {
+            const contractorId = this.getAttribute('data-id');
+            const row = this.closest('tr');
+            const nameDisplay = row.querySelector('.contractor-name-display');
+            const nameEdit = row.querySelector('.contractor-name-edit');
+            const editBtn = row.querySelector('.edit-btn');
+            
+            if (nameEdit.style.display === 'none') {
+              // Switch to edit mode
+              nameDisplay.style.display = 'none';
+              nameEdit.style.display = 'inline-block';
+              editBtn.textContent = 'Save';
+              
+              nameEdit.focus();
+              nameEdit.select();
+              
+              // Handle save on Enter key
+              const saveHandler = async (e) => {
+                if (e.key === 'Enter') {
+                  nameEdit.removeEventListener('keypress', saveHandler);
+                  await saveContractorEdit(contractorId, nameEdit.value.trim(), row);
+                }
+              };
+              
+              // Handle cancel on Escape key
+              const cancelHandler = (e) => {
+                if (e.key === 'Escape') {
+                  nameEdit.removeEventListener('keypress', saveHandler);
+                  nameEdit.removeEventListener('keydown', cancelHandler);
+                  nameDisplay.style.display = 'inline';
+                  nameEdit.style.display = 'none';
+                  editBtn.textContent = 'Edit';
+                  nameEdit.value = nameDisplay.textContent;
+                }
+              };
+              
+              nameEdit.addEventListener('keypress', saveHandler);
+              nameEdit.addEventListener('keydown', cancelHandler);
+            } else {
+              // Save mode
+              await saveContractorEdit(contractorId, nameEdit.value.trim(), row);
+            }
+          });
+        });
+        
+        // Delete buttons
+        document.querySelectorAll('.delete-btn').forEach(btn => {
+          btn.addEventListener('click', async function() {
+            const contractorId = this.getAttribute('data-id');
+            const contractorName = this.closest('tr').querySelector('.contractor-name-display').textContent;
+            
+            if (confirm(`Are you sure you want to delete "${contractorName}"?`)) {
+              try {
+                await contractorsAPI.delete(contractorId);
+                await loadContractors();
+                addContractorWarning.textContent = 'Contractor deleted successfully!';
+                addContractorWarning.style.color = '#4ade80';
+                setTimeout(() => {
+                  addContractorWarning.textContent = '';
+                }, 3000);
+              } catch (error) {
+                addContractorWarning.style.color = '#ef4444';
+                addContractorWarning.textContent = error.message || 'Failed to delete contractor.';
+              }
+            }
+          });
+        });
+      }
+
+      // Save contractor edit
+      async function saveContractorEdit(contractorId, newName, row) {
+        if (!newName) {
+          addContractorWarning.style.color = '#ef4444';
+          addContractorWarning.textContent = 'Contractor name cannot be empty.';
+          return;
+        }
+        
+        try {
+          await contractorsAPI.update(contractorId, newName);
+          const nameDisplay = row.querySelector('.contractor-name-display');
+          const nameEdit = row.querySelector('.contractor-name-edit');
+          const editBtn = row.querySelector('.edit-btn');
+          
+          nameDisplay.textContent = newName;
+          nameDisplay.style.display = 'inline';
+          nameEdit.style.display = 'none';
+          editBtn.textContent = 'Edit';
+          
+          addContractorWarning.textContent = 'Contractor updated successfully!';
+          addContractorWarning.style.color = '#4ade80';
+          setTimeout(() => {
+            addContractorWarning.textContent = '';
+          }, 3000);
+        } catch (error) {
+          addContractorWarning.style.color = '#ef4444';
+          addContractorWarning.textContent = error.message || 'Failed to update contractor.';
         }
       }
 
