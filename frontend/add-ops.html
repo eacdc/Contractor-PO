@@ -102,6 +102,7 @@
                     <th>Qty / Book</th>
                     <th>Rate</th>
                     <th>Rate / Book</th>
+                    <th style="width: 60px;">Action</th>
                   </tr>
                 </thead>
                 <tbody id="multipleJobsAddOpsBody">
@@ -117,6 +118,9 @@
                     </td>
                     <td>
                       <input type="number" name="rateBook" value="1" readonly />
+                    </td>
+                    <td>
+                      <button type="button" class="delete-row-btn" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px; font-size: 18px;" title="Delete row">×</button>
                     </td>
                   </tr>
                 </tbody>
@@ -204,6 +208,7 @@
                     <th>Qty / Book</th>
                     <th>Rate</th>
                     <th>Rate / Book</th>
+                    <th style="width: 60px;">Action</th>
                   </tr>
                 </thead>
                 <tbody id="addOpsBody">
@@ -219,6 +224,9 @@
                     </td>
                     <td>
                       <input type="number" name="rateBook" value="1" readonly />
+                    </td>
+                    <td>
+                      <button type="button" class="delete-row-btn" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px; font-size: 18px;" title="Delete row">×</button>
                     </td>
                   </tr>
                 </tbody>
@@ -258,6 +266,7 @@
       let isMultipleJobMode = false; // Track single/multiple job mode
       let multipleJobs = []; // Array to store multiple job data
       let currentSeriesId = null; // Store series ID when pulling in a series
+      let existingOperationIds = new Set(); // Track operation IDs already in the job
 
       // Collapsible panels
       document.querySelectorAll(".panel--collapsible .panel-header").forEach((header) => {
@@ -511,16 +520,16 @@
           }
         }
 
-        rateInput.value = ratePerUnit;
+        rateInput.value = ratePerUnit.toFixed(4);
 
         // Calculate rate/book based on operation type
         const qty = qtyInput && qtyInput.value ? Number(qtyInput.value) : 0;
         if (operation && operation.type === '1/x' && qty > 0) {
           // For 1/x: rate/book = rate * (1 / booksPerOps)
-          rateBookInput.value = (ratePerUnit * (1 / qty)).toFixed(2);
+          rateBookInput.value = (ratePerUnit * (1 / qty)).toFixed(4);
         } else if (qty > 0) {
           // For 1:1 and 1*x: rate/book = rate * qty
-          rateBookInput.value = (qty * ratePerUnit).toFixed(2);
+          rateBookInput.value = (qty * ratePerUnit).toFixed(4);
         } else {
           rateBookInput.value = '';
         }
@@ -758,6 +767,7 @@
 
           // Mark that a job has been searched (even if not found)
           hasSearchedJob = true;
+          existingOperationIds.clear(); // Clear existing operations if job not found
           
           // Refresh all dropdowns (show all operations)
           refreshAllDropdowns();
@@ -803,6 +813,45 @@
             return;
           }
 
+          // Check for duplicate operation before adding new row
+          const lastOpsValue = lastOpsInput.value.trim();
+          const lastOperation = findOperationByNameOrId(lastOpsValue);
+          
+          if (lastOperation) {
+            const opIdStr = String(lastOperation._id);
+            
+            // Check if operation is already in the job
+            if (existingOperationIds.has(opIdStr)) {
+              if (addOpsWarning) {
+                addOpsWarning.textContent = `"${lastOperation.opsName}" is already added to this job. Cannot add duplicate operation.`;
+                addOpsWarning.style.color = "#ef4444";
+              }
+              return;
+            }
+            
+            // Check if operation is already in another row in the current form
+            let isDuplicateInForm = false;
+            for (let i = 0; i < rows.length - 1; i++) {
+              const otherRow = rows[i];
+              const otherOpsInput = otherRow.querySelector('input[name="opsName"]');
+              if (otherOpsInput && otherOpsInput.value.trim()) {
+                const otherOperation = findOperationByNameOrId(otherOpsInput.value.trim());
+                if (otherOperation && String(otherOperation._id) === opIdStr) {
+                  isDuplicateInForm = true;
+                  break;
+                }
+              }
+            }
+            
+            if (isDuplicateInForm) {
+              if (addOpsWarning) {
+                addOpsWarning.textContent = `"${lastOperation.opsName}" is already added in this form. Cannot add duplicate operation.`;
+                addOpsWarning.style.color = "#ef4444";
+              }
+              return;
+            }
+          }
+
           if (addOpsWarning) {
             addOpsWarning.textContent = "";
           }
@@ -835,6 +884,11 @@
           
           // Update visibility after adding new row
           updateAddButtonVisibility();
+          
+          // Clear warning after successful add
+          if (addOpsWarning) {
+            addOpsWarning.textContent = "";
+          }
         });
       }
 
@@ -846,7 +900,7 @@
               const row = target.closest('.ops-row');
               if (row) {
                 const opsValue = target.value.trim();
-                // Validate if operation exists in list
+                // Validate if operation exists in list and is not duplicate
                 if (opsValue) {
                   const operation = findOperationByNameOrId(opsValue);
                   if (!operation) {
@@ -856,14 +910,53 @@
                       addOpsWarning.style.color = "#ef4444";
                     }
                   } else {
-                    // Clear warning if operation is found
-                    if (addOpsWarning && addOpsWarning.textContent.includes('is not in the operations list')) {
-                      addOpsWarning.textContent = "";
+                    // Check if operation is already in the job
+                    const opIdStr = String(operation._id);
+                    if (existingOperationIds.has(opIdStr)) {
+                      if (addOpsWarning) {
+                        addOpsWarning.textContent = `"${operation.opsName}" is already added to this job. Please select a different operation.`;
+                        addOpsWarning.style.color = "#ef4444";
+                      }
+                      // Clear the input
+                      target.value = '';
+                      updateRowPricing(row);
+                    } else {
+                      // Check if operation is already in another row in the current form
+                      const allRows = opsBody.querySelectorAll('.ops-row');
+                      let isDuplicateInForm = false;
+                      for (const otherRow of allRows) {
+                        if (otherRow !== row) {
+                          const otherOpsInput = otherRow.querySelector('input[name="opsName"]');
+                          if (otherOpsInput && otherOpsInput.value.trim()) {
+                            const otherOperation = findOperationByNameOrId(otherOpsInput.value.trim());
+                            if (otherOperation && String(otherOperation._id) === opIdStr) {
+                              isDuplicateInForm = true;
+                              break;
+                            }
+                          }
+                        }
+                      }
+                      if (isDuplicateInForm) {
+                        if (addOpsWarning) {
+                          addOpsWarning.textContent = `"${operation.opsName}" is already added in this form. Please select a different operation.`;
+                          addOpsWarning.style.color = "#ef4444";
+                        }
+                        // Clear the input
+                        target.value = '';
+                        updateRowPricing(row);
+                      } else {
+                        // Clear warning if operation is valid and not duplicate
+                        if (addOpsWarning && (addOpsWarning.textContent.includes('is not in the operations list') || 
+                            addOpsWarning.textContent.includes('already added'))) {
+                          addOpsWarning.textContent = "";
+                        }
+                      }
                     }
                   }
                 } else {
                   // Clear warning if field is empty
-                  if (addOpsWarning && addOpsWarning.textContent.includes('is not in the operations list')) {
+                  if (addOpsWarning && (addOpsWarning.textContent.includes('is not in the operations list') || 
+                      addOpsWarning.textContent.includes('already added'))) {
                     addOpsWarning.textContent = "";
                   }
                 }
@@ -921,10 +1014,10 @@
             if (!isNaN(qty) && !isNaN(rate) && qty > 0) {
               if (operation && operation.type === '1/x') {
                 // For 1/x: rate/book = rate * (1 / booksPerOps)
-                rateBookInput.value = (rate * (1 / qty)).toFixed(2);
+                rateBookInput.value = (rate * (1 / qty)).toFixed(4);
               } else {
                 // For 1:1 and 1*x: rate/book = rate * qty
-                rateBookInput.value = (qty * rate).toFixed(2);
+                rateBookInput.value = (qty * rate).toFixed(4);
               }
             } else {
               rateBookInput.value = '';
@@ -966,6 +1059,20 @@
                 return; // Stop saving if operation not found
               }
               
+              // Check if operation is already in the job
+              const opIdStr = String(operation._id);
+              if (existingOperationIds.has(opIdStr)) {
+                addOpsWarning.textContent = `Operation "${operation.opsName}" is already added to this job. Please remove it from the form.`;
+                return; // Stop saving if duplicate
+              }
+              
+              // Check if operation is duplicate within the current form
+              const duplicateInForm = operations.some(op => String(op.operationId) === opIdStr);
+              if (duplicateInForm) {
+                addOpsWarning.textContent = `Operation "${operation.opsName}" is added multiple times in this form. Please remove duplicates.`;
+                return; // Stop saving if duplicate in form
+              }
+              
               // Validate qty/book based on operation type
               const validation = validateQtyBook(qtyInput.value, operation);
               if (!validation.valid) {
@@ -977,8 +1084,8 @@
               operations.push({
                 operationId: operation._id,
                 qtyPerBook: parseFloat(qtyInput.value),
-                rate: parseFloat(rateInput.value),
-                ratePerBook: parseFloat(rateBookInput.value)
+                rate: parseFloat(parseFloat(rateInput.value).toFixed(4)),
+                ratePerBook: parseFloat(parseFloat(rateBookInput.value).toFixed(4))
               });
             }
           }
@@ -1045,6 +1152,9 @@
                 </td>
                 <td>
                   <input type="number" name="rateBook" value="1" readonly />
+                </td>
+                <td>
+                  <button type="button" class="delete-row-btn" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px; font-size: 18px;" title="Delete row">×</button>
                 </td>
               `;
               opsBody.appendChild(baseRow);
@@ -1207,8 +1317,11 @@
                 <td>
                   <input type="number" name="rateBook" value="1" readonly />
                 </td>
+                <td>
+                  <button type="button" class="delete-row-btn" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px; font-size: 18px;" title="Delete row">×</button>
+                </td>
               `;
-              multipleJobsAddOpsBody.appendChild(baseRow);
+            multipleJobsAddOpsBody.appendChild(baseRow);
             }
             
             // Clear multiple jobs warning
@@ -1289,8 +1402,11 @@
                 <td>
                   <input type="number" name="rateBook" value="1" readonly />
                 </td>
+                <td>
+                  <button type="button" class="delete-row-btn" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px; font-size: 18px;" title="Delete row">×</button>
+                </td>
               `;
-              multipleJobsAddOpsBody.appendChild(baseRow);
+            multipleJobsAddOpsBody.appendChild(baseRow);
             }
             
             // Clear multiple jobs warning
@@ -1653,6 +1769,9 @@
             <td>
               <input type="number" name="rateBook" value="1" readonly />
             </td>
+            <td>
+              <button type="button" class="delete-row-btn" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px; font-size: 18px;" title="Delete row">×</button>
+            </td>
           `;
           opsBody.appendChild(baseRow);
         }
@@ -1816,6 +1935,58 @@
             }
             return;
           }
+
+          // Check for duplicate operation before adding new row
+          const lastOpsValue = lastOpsInput.value.trim();
+          const lastOperation = findOperationByNameOrId(lastOpsValue);
+          
+          if (lastOperation) {
+            const opIdStr = String(lastOperation._id);
+            
+            // Check if operation is already in any of the jobs
+            let isDuplicateInJob = false;
+            let duplicateJobNumber = null;
+            for (const jobData of multipleJobs) {
+              if (jobData.previousOps && Array.isArray(jobData.previousOps.operations) && jobData.previousOps.operations.length > 0) {
+                const existingOp = jobData.previousOps.operations.find(prevOp => String(prevOp.opsId) === opIdStr);
+                if (existingOp) {
+                  isDuplicateInJob = true;
+                  duplicateJobNumber = jobData.jobNumber;
+                  break;
+                }
+              }
+            }
+            
+            if (isDuplicateInJob) {
+              if (multipleJobsAddOpsWarning) {
+                multipleJobsAddOpsWarning.textContent = `"${lastOperation.opsName}" is already added to job ${duplicateJobNumber}. Cannot add duplicate operation.`;
+                multipleJobsAddOpsWarning.style.color = "#ef4444";
+              }
+              return;
+            }
+            
+            // Check if operation is already in another row in the current form
+            let isDuplicateInForm = false;
+            for (let i = 0; i < rows.length - 1; i++) {
+              const otherRow = rows[i];
+              const otherOpsInput = otherRow.querySelector('input[name="opsName"]');
+              if (otherOpsInput && otherOpsInput.value.trim()) {
+                const otherOperation = findOperationByNameOrId(otherOpsInput.value.trim());
+                if (otherOperation && String(otherOperation._id) === opIdStr) {
+                  isDuplicateInForm = true;
+                  break;
+                }
+              }
+            }
+            
+            if (isDuplicateInForm) {
+              if (multipleJobsAddOpsWarning) {
+                multipleJobsAddOpsWarning.textContent = `"${lastOperation.opsName}" is already added in this form. Cannot add duplicate operation.`;
+                multipleJobsAddOpsWarning.style.color = "#ef4444";
+              }
+              return;
+            }
+          }
           
           const clone = lastRow.cloneNode(true);
           
@@ -1840,8 +2011,68 @@
           
           multipleJobsAddOpsBody.appendChild(clone);
           
-          // Clear warning
+          // Clear warning after successful add
           if (multipleJobsAddOpsWarning) multipleJobsAddOpsWarning.textContent = "";
+        });
+      }
+
+      // Delete row functionality for single job mode
+      if (opsBody) {
+        opsBody.addEventListener('click', (e) => {
+          if (e.target && e.target.classList.contains('delete-row-btn')) {
+            const row = e.target.closest('.ops-row');
+            if (!row) return;
+            
+            const rows = opsBody.querySelectorAll('.ops-row');
+            // Don't allow deleting if it's the only row
+            if (rows.length <= 1) {
+              if (addOpsWarning) {
+                addOpsWarning.textContent = "Cannot delete the last row. At least one row is required.";
+                addOpsWarning.style.color = "#ef4444";
+                setTimeout(() => {
+                  if (addOpsWarning) addOpsWarning.textContent = "";
+                }, 3000);
+              }
+              return;
+            }
+            
+            row.remove();
+            
+            // Clear warning after successful delete
+            if (addOpsWarning) {
+              addOpsWarning.textContent = "";
+            }
+          }
+        });
+      }
+
+      // Delete row functionality for multiple jobs mode
+      if (multipleJobsAddOpsBody) {
+        multipleJobsAddOpsBody.addEventListener('click', (e) => {
+          if (e.target && e.target.classList.contains('delete-row-btn')) {
+            const row = e.target.closest('.ops-row');
+            if (!row) return;
+            
+            const rows = multipleJobsAddOpsBody.querySelectorAll('.ops-row');
+            // Don't allow deleting if it's the only row
+            if (rows.length <= 1) {
+              if (multipleJobsAddOpsWarning) {
+                multipleJobsAddOpsWarning.textContent = "Cannot delete the last row. At least one row is required.";
+                multipleJobsAddOpsWarning.style.color = "#ef4444";
+                setTimeout(() => {
+                  if (multipleJobsAddOpsWarning) multipleJobsAddOpsWarning.textContent = "";
+                }, 3000);
+              }
+              return;
+            }
+            
+            row.remove();
+            
+            // Clear warning after successful delete
+            if (multipleJobsAddOpsWarning) {
+              multipleJobsAddOpsWarning.textContent = "";
+            }
+          }
         });
       }
       
@@ -1879,6 +2110,17 @@
                 return; // Stop saving if operation not found
               }
               
+              // Check if operation is duplicate within the current form
+              const opIdStr = String(operation._id);
+              const duplicateInForm = operations.some(op => String(op.operationId) === opIdStr);
+              if (duplicateInForm) {
+                if (multipleJobsAddOpsWarning) {
+                  multipleJobsAddOpsWarning.textContent = `Operation "${operation.opsName}" is added multiple times in this form. Please remove duplicates.`;
+                  multipleJobsAddOpsWarning.style.color = "#ef4444";
+                }
+                return; // Stop saving if duplicate in form
+              }
+              
               // Validate qty/book based on operation type
               const validation = validateQtyBook(qtyInput.value, operation);
               if (!validation.valid) {
@@ -1893,8 +2135,8 @@
               operations.push({
                 operationId: operation._id,
                 qtyPerBook: parseFloat(qtyInput.value),
-                rate: parseFloat(rateInput.value),
-                ratePerBook: parseFloat(rateBookInput.value)
+                rate: parseFloat(parseFloat(rateInput.value).toFixed(4)),
+                ratePerBook: parseFloat(parseFloat(rateBookInput.value).toFixed(4))
               });
             }
           }
@@ -1905,6 +2147,26 @@
               multipleJobsAddOpsWarning.style.color = "#ef4444";
             }
             return;
+          }
+          
+          // Check if any operation is already in any of the jobs
+          for (const jobData of multipleJobs) {
+            if (jobData.previousOps && Array.isArray(jobData.previousOps.operations) && jobData.previousOps.operations.length > 0) {
+              for (const op of operations) {
+                const opIdStr = String(op.operationId);
+                const existingOp = jobData.previousOps.operations.find(prevOp => String(prevOp.opsId) === opIdStr);
+                if (existingOp) {
+                  // Find operation name for better error message
+                  const operation = allOperations.find(o => String(o._id) === opIdStr);
+                  const opsName = operation ? operation.opsName : 'Unknown';
+                  if (multipleJobsAddOpsWarning) {
+                    multipleJobsAddOpsWarning.textContent = `Operation "${opsName}" is already added to job ${jobData.jobNumber}. Please remove it from the form.`;
+                    multipleJobsAddOpsWarning.style.color = "#ef4444";
+                  }
+                  return; // Stop saving if duplicate found
+                }
+              }
+            }
           }
           
           // Save operations to all jobs
@@ -1987,20 +2249,23 @@
             multipleJobsAddOpsBody.innerHTML = '';
             const baseRow = document.createElement('tr');
             baseRow.classList.add('ops-row');
-            baseRow.innerHTML = `
-              <td>
-                <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" />
-              </td>
-              <td>
-                <input type="text" name="qtyBook" />
-              </td>
-              <td>
-                <input type="number" name="rate" value="1" readonly />
-              </td>
-              <td>
-                <input type="number" name="rateBook" value="1" readonly />
-              </td>
-            `;
+              baseRow.innerHTML = `
+                <td>
+                  <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" />
+                </td>
+                <td>
+                  <input type="text" name="qtyBook" />
+                </td>
+                <td>
+                  <input type="number" name="rate" value="1" readonly />
+                </td>
+                <td>
+                  <input type="number" name="rateBook" value="1" readonly />
+                </td>
+                <td>
+                  <button type="button" class="delete-row-btn" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px; font-size: 18px;" title="Delete row">×</button>
+                </td>
+              `;
             multipleJobsAddOpsBody.appendChild(baseRow);
             // Datalist is already populated, no need to do anything
           } catch (error) {
@@ -2020,7 +2285,7 @@
             const row = e.target.closest('.ops-row');
             if (row) {
               const opsValue = e.target.value.trim();
-              // Validate if operation exists in list
+              // Validate if operation exists in list and is not duplicate
               if (opsValue) {
                 const operation = findOperationByNameOrId(opsValue);
                 if (!operation) {
@@ -2030,14 +2295,63 @@
                     multipleJobsAddOpsWarning.style.color = "#ef4444";
                   }
                 } else {
-                  // Clear warning if operation is found
-                  if (multipleJobsAddOpsWarning && multipleJobsAddOpsWarning.textContent.includes('is not in the operations list')) {
-                    multipleJobsAddOpsWarning.textContent = "";
+                  // Check if operation is already in any of the jobs
+                  const opIdStr = String(operation._id);
+                  let isDuplicateInJob = false;
+                  for (const jobData of multipleJobs) {
+                    if (jobData.previousOps && Array.isArray(jobData.previousOps.operations) && jobData.previousOps.operations.length > 0) {
+                      const existingOp = jobData.previousOps.operations.find(prevOp => String(prevOp.opsId) === opIdStr);
+                      if (existingOp) {
+                        isDuplicateInJob = true;
+                        if (multipleJobsAddOpsWarning) {
+                          multipleJobsAddOpsWarning.textContent = `"${operation.opsName}" is already added to job ${jobData.jobNumber}. Please select a different operation.`;
+                          multipleJobsAddOpsWarning.style.color = "#ef4444";
+                        }
+                        // Clear the input
+                        e.target.value = '';
+                        updateRowPricing(row);
+                        break;
+                      }
+                    }
+                  }
+                  
+                  if (!isDuplicateInJob) {
+                    // Check if operation is already in another row in the current form
+                    const allRows = multipleJobsAddOpsBody.querySelectorAll('.ops-row');
+                    let isDuplicateInForm = false;
+                    for (const otherRow of allRows) {
+                      if (otherRow !== row) {
+                        const otherOpsInput = otherRow.querySelector('input[name="opsName"]');
+                        if (otherOpsInput && otherOpsInput.value.trim()) {
+                          const otherOperation = findOperationByNameOrId(otherOpsInput.value.trim());
+                          if (otherOperation && String(otherOperation._id) === opIdStr) {
+                            isDuplicateInForm = true;
+                            break;
+                          }
+                        }
+                      }
+                    }
+                    if (isDuplicateInForm) {
+                      if (multipleJobsAddOpsWarning) {
+                        multipleJobsAddOpsWarning.textContent = `"${operation.opsName}" is already added in this form. Please select a different operation.`;
+                        multipleJobsAddOpsWarning.style.color = "#ef4444";
+                      }
+                      // Clear the input
+                      e.target.value = '';
+                      updateRowPricing(row);
+                    } else {
+                      // Clear warning if operation is valid and not duplicate
+                      if (multipleJobsAddOpsWarning && (multipleJobsAddOpsWarning.textContent.includes('is not in the operations list') || 
+                          multipleJobsAddOpsWarning.textContent.includes('already added'))) {
+                        multipleJobsAddOpsWarning.textContent = "";
+                      }
+                    }
                   }
                 }
               } else {
                 // Clear warning if field is empty
-                if (multipleJobsAddOpsWarning && multipleJobsAddOpsWarning.textContent.includes('is not in the operations list')) {
+                if (multipleJobsAddOpsWarning && (multipleJobsAddOpsWarning.textContent.includes('is not in the operations list') || 
+                    multipleJobsAddOpsWarning.textContent.includes('already added'))) {
                   multipleJobsAddOpsWarning.textContent = "";
                 }
               }
@@ -2072,10 +2386,10 @@
             if (!isNaN(qty) && !isNaN(rate) && qty > 0) {
               if (operation && operation.type === '1/x') {
                 // For 1/x: rate/book = rate * (1 / booksPerOps)
-                rateBookInput.value = (rate * (1 / qty)).toFixed(2);
+                rateBookInput.value = (rate * (1 / qty)).toFixed(4);
               } else {
                 // For 1:1 and 1*x: rate/book = rate * qty
-                rateBookInput.value = (qty * rate).toFixed(2);
+                rateBookInput.value = (qty * rate).toFixed(4);
               }
             } else {
               rateBookInput.value = '';

@@ -117,7 +117,7 @@
                     <th>Job Number</th>
                     <th>Operation</th>
                     <th>Qty/Book</th>
-                    <th>Rate</th>
+                    <th>Rate / Book</th>
                     <th>Qty Completed</th>
                     <th>Total Value</th>
                   </tr>
@@ -191,68 +191,6 @@
         }
       }
 
-      // Helper function to recalculate valuePerBook based on operation type
-      function recalculateValuePerBook(operations) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:189',message:'recalculateValuePerBook ENTRY',data:{opsCount:operations?.length,allOpsCount:allOperations?.length,allOpsLoaded:!!allOperations&&allOperations.length>0},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
-        if (!operations || !Array.isArray(operations)) {
-          return operations;
-        }
-
-        // If allOperations is not loaded yet, return operations as-is
-        if (!allOperations || allOperations.length === 0) {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:196',message:'allOperations NOT LOADED',data:{allOpsCount:allOperations?.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
-          console.warn('allOperations not loaded yet, skipping valuePerBook recalculation');
-          return operations;
-        }
-
-        return operations.map(op => {
-          // Find operation type from allOperations
-          // Normalize both IDs to strings for comparison
-          const opIdStr = String(op.opId);
-          const operation = allOperations.find(o => String(o._id) === opIdStr);
-          const operationType = operation ? operation.type : null;
-          const rate = op.rate || 0;
-          const qtyPerBook = op.qtyPerBook || 0;
-          const originalValuePerBook = op.valuePerBook || 0;
-          
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:204',message:'Operation lookup',data:{opId:op.opId,opIdStr:opIdStr,opsName:op.opsName,found:!!operation,operationType:operationType,rate:rate,qtyPerBook:qtyPerBook,originalValuePerBook:originalValuePerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
-          
-          // Recalculate valuePerBook based on operation type
-          // For 1/x: valuePerBook = rate * (1 / qtyPerBook)
-          // For others (1:1, 1*x): valuePerBook = rate * qtyPerBook
-          let valuePerBook;
-          if (operationType === '1/x' && qtyPerBook > 0) {
-            valuePerBook = rate * (1 / qtyPerBook);
-            // #region agent log
-            fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:214',message:'1/x calculation',data:{opsName:op.opsName,rate:rate,qtyPerBook:qtyPerBook,calculatedValuePerBook:valuePerBook,originalValuePerBook:originalValuePerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-            // #endregion
-          } else if (qtyPerBook > 0) {
-            valuePerBook = rate * qtyPerBook;
-            // #region agent log
-            fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:216',message:'Non-1/x calculation',data:{opsName:op.opsName,operationType:operationType,rate:rate,qtyPerBook:qtyPerBook,calculatedValuePerBook:valuePerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})}).catch(()=>{});
-            // #endregion
-          } else {
-            // Fallback to stored value if qtyPerBook is 0 or invalid
-            valuePerBook = op.valuePerBook || 0;
-          }
-          
-          // Return operation with recalculated valuePerBook
-          const result = {
-            ...op,
-            valuePerBook: valuePerBook
-          };
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:223',message:'Recalculated operation',data:{opsName:op.opsName,originalValuePerBook:originalValuePerBook,newValuePerBook:valuePerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
-          return result;
-        });
-      }
 
       // Load contractors and job numbers on page load
       async function loadContractors() {
@@ -291,7 +229,6 @@
       // Load data on page load
       loadContractors();
       loadJobNumbers();
-      loadOperations(); // Load all operations for type lookup
       
       // Initialize "Pull in Series" checkbox state on page load
       updatePullInSeriesCheckboxState();
@@ -1017,16 +954,14 @@
               for (const jn of jobNumbersToLoad) {
                 try {
                   const result = await workAPI.getPendingFromJobOpsMaster(jn);
-                  // Recalculate valuePerBook for 1/x operations
-                  const recalculatedOperations = recalculateValuePerBook(result.operations || []);
                   
                   seriesJobs.push({
                     jobNumber: jn,
-                    operations: recalculatedOperations
+                    operations: result.operations || []
                   });
                   
-                  // Create job row with recalculated operations
-                  const jobRow = createJobRowWithOps(jn, recalculatedOperations);
+                  // Create job row with operations
+                  const jobRow = createJobRowWithOps(jn, result.operations || []);
                   if (multipleJobsContainer) {
                     multipleJobsContainer.appendChild(jobRow);
                   }
@@ -1065,17 +1000,9 @@
                 opsPendingBody.innerHTML = "";
                 
                 if (result.operations && result.operations.length > 0) {
-                  // Recalculate valuePerBook for 1/x operations
-                  // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:1041',message:'Before recalculation - single job',data:{opsCount:result.operations.length,firstOpValuePerBook:result.operations[0]?.valuePerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-                  // #endregion
-                  const recalculatedOperations = recalculateValuePerBook(result.operations);
-                  // #region agent log
-                  fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:1043',message:'After recalculation - single job',data:{opsCount:recalculatedOperations.length,firstOpValuePerBook:recalculatedOperations[0]?.valuePerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
-                  // #endregion
-                  currentOperationsData = recalculatedOperations;
+                  currentOperationsData = result.operations;
                   
-                  recalculatedOperations.forEach(op => {
+                  result.operations.forEach(op => {
                     const cachedReduction = pendingQtyCache[jobNumber]?.[op.opId] || 0;
                     const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
                     
@@ -1196,8 +1123,8 @@
             
             // Only add operations where qty to add > 0
             if (qtyCompleted > 0) {
-              const rate = op.rate || 0;
-              const totalValue = qtyCompleted * rate;
+              const valuePerBook = op.valuePerBook || 0;
+              const totalValue = qtyCompleted * valuePerBook;
               
               // Ensure opsName is available - it should come from the backend response
               const opsName = op.opsName;
@@ -1210,7 +1137,7 @@
               }
               
               // #region agent log
-              fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:1170',message:'Adding to billData',data:{opsName:op.opsName,opId:op.opId,valuePerBook:op.valuePerBook,rate:rate,qtyPerBook:op.qtyPerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+              fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:1170',message:'Adding to billData',data:{opsName:op.opsName,opId:op.opId,valuePerBook:op.valuePerBook,qtyPerBook:op.qtyPerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
               // #endregion
               
               billData.push({
@@ -1218,10 +1145,10 @@
                 opId: op.opId, // Store opId for updating JobOpsMaster and Contractor_WD
                 opsName: opsName.trim(),
                 qtyBook: op.qtyPerBook || 0,
-                rate: rate,
+                rate: op.rate || 0, // Keep rate for backward compatibility if needed
                 qtyCompleted: qtyCompleted,
                 totalValue: totalValue,
-                valuePerBook: op.valuePerBook || 0 // Store valuePerBook for matching
+                valuePerBook: valuePerBook // Store valuePerBook for matching and display
               });
               
               hasUnsavedBillData = true;
@@ -1321,8 +1248,8 @@
               const qtyCompleted = qtyToAddMap[key] || 0;
               
               if (qtyCompleted > 0) {
-                const rate = op.rate || 0;
-                const totalValue = qtyCompleted * rate;
+                const valuePerBook = op.valuePerBook || 0;
+                const totalValue = qtyCompleted * valuePerBook;
                 const opsName = op.opsName;
                 
                 if (!opsName || !opsName.trim() || opsName.trim() === 'Unknown' || opsName.trim() === '-') {
@@ -1335,10 +1262,10 @@
                 opId: op.opId,
                 opsName: opsName.trim(),
                 qtyBook: op.qtyPerBook || 0,
-                rate: rate,
+                rate: op.rate || 0, // Keep rate for backward compatibility if needed
                 qtyCompleted: qtyCompleted,
                 totalValue: totalValue,
-                valuePerBook: op.valuePerBook || 0 // Store valuePerBook for matching
+                valuePerBook: valuePerBook // Store valuePerBook for matching and display
               });
                 
                 totalOperationsAdded++;
@@ -1443,7 +1370,7 @@
               <td>${item.jobNumber}</td>
               <td>${item.opsName}</td>
               <td>${item.qtyBook}</td>
-              <td>${item.rate.toFixed(2)}</td>
+              <td>${(item.valuePerBook || 0).toFixed(4)}</td>
               <td>${item.qtyCompleted}</td>
               <td>${item.totalValue.toFixed(2)}</td>
             `;
@@ -1549,8 +1476,8 @@
           jobsMap[item.jobNumber].push({
             opId: item.opId, // Include opId for operation type lookup
             opsName: item.opsName.trim(),
-            qtyBook: item.qtyBook,
-            rate: item.rate,
+            qtyBook: item.qtyBook, // Save qtyBook as is, no calculation
+            rate: item.valuePerBook || 0, // Save valuePerBook in rate field, no calculation
             qtyCompleted: item.qtyCompleted,
             totalValue: item.totalValue
           });
