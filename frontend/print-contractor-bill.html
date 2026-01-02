@@ -159,9 +159,9 @@
         yPos += 12;
         
         // ===== TABLE SETUP =====
-        const colHeaders = ['Job Number', 'Operation', 'Qty/Book', 'Rate', 'Qty Completed', 'Total Value'];
+        const colHeaders = ['Job Number', 'Client Name', 'Job Title', 'Operation', 'Qty/Book', 'Rate', 'Qty Completed', 'Total Value'];
         // Distribute columns proportionally across full width
-        const colRatios = [0.12, 0.30, 0.12, 0.12, 0.15, 0.19]; // Must sum to 1
+        const colRatios = [0.10, 0.12, 0.12, 0.22, 0.10, 0.10, 0.12, 0.12]; // Must sum to 1
         const colWidths = colRatios.map(r => r * tableWidth);
         const colX = [margin];
         for (let i = 1; i < colHeaders.length; i++) {
@@ -214,8 +214,10 @@
           doc.setTextColor(50, 50, 50);
           
           values.forEach((val, i) => {
-            const cellX = i < 2 ? colX[i] + 3 : colX[i] + colWidths[i] - 3;
-            const align = i < 2 ? 'left' : 'right';
+            // First 4 columns (Job Number, Client Name, Job Title, Operation) are left-aligned
+            // Last 4 columns (Qty/Book, Rate, Qty Completed, Total Value) are right-aligned
+            const cellX = i < 4 ? colX[i] + 3 : colX[i] + colWidths[i] - 3;
+            const align = i < 4 ? 'left' : 'right';
             doc.text(String(val), cellX, y + rowHeight - 2.5, { align: align });
           });
           
@@ -255,9 +257,13 @@
             // Get operation name
             const operationName = op.opsName || op.operationName || op.name || `Op ${opIndex + 1}`;
             const jobNumberText = opIndex === 0 ? job.jobNumber : '';
+            const clientNameText = opIndex === 0 ? (job.clientName || '') : '';
+            const jobTitleText = opIndex === 0 ? (job.jobTitle || '') : '';
             
             const values = [
               jobNumberText,
+              clientNameText,
+              jobTitleText,
               operationName,
               qtyBook.toFixed(2),
               rate.toFixed(2),

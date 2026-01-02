@@ -955,6 +955,14 @@
                 try {
                   const result = await workAPI.getPendingFromJobOpsMaster(jn);
                   
+                  // Store clientName and jobTitle for this job
+                  if (result.clientName !== undefined || result.jobTitle !== undefined) {
+                    jobDetailsMap[jn] = {
+                      clientName: result.clientName || '',
+                      jobTitle: result.jobTitle || ''
+                    };
+                  }
+                  
                   seriesJobs.push({
                     jobNumber: jn,
                     operations: result.operations || []
@@ -994,6 +1002,14 @@
               opsPendingPanel.style.display = 'block';
               const result = await workAPI.getPendingFromJobOpsMaster(jobNumber);
               opsPendingPanel.classList.remove("panel-collapsed");
+
+              // Store clientName and jobTitle for this job
+              if (result.clientName !== undefined || result.jobTitle !== undefined) {
+                jobDetailsMap[jobNumber] = {
+                  clientName: result.clientName || '',
+                  jobTitle: result.jobTitle || ''
+                };
+              }
 
               // Populate table
               if (opsPendingBody) {
@@ -1257,8 +1273,11 @@
                   return;
                 }
                 
+              const jobDetails = jobDetailsMap[jobNumber] || { clientName: '', jobTitle: '' };
               billData.push({
                 jobNumber: jobNumber,
+                clientName: jobDetails.clientName || '',
+                jobTitle: jobDetails.jobTitle || '',
                 opId: op.opId,
                 opsName: opsName.trim(),
                 qtyBook: op.qtyPerBook || 0,
@@ -1423,6 +1442,7 @@
         billData = [];
         hasUnsavedBillData = false;
         pendingQtyCache = {}; // Clear pending qty cache
+        jobDetailsMap = {}; // Clear job details map
         
         opsPendingPanel.classList.add("panel-collapsed");
         billTablePanel.classList.add("panel-collapsed");
@@ -1484,10 +1504,15 @@
         }
 
         // Convert to jobs array format
-        const jobs = Object.keys(jobsMap).map(jobNumber => ({
-          jobNumber: jobNumber,
-          ops: jobsMap[jobNumber]
-        }));
+        const jobs = Object.keys(jobsMap).map(jobNumber => {
+          const jobDetails = jobDetailsMap[jobNumber] || { clientName: '', jobTitle: '' };
+          return {
+            jobNumber: jobNumber,
+            clientName: jobDetails.clientName || '',
+            jobTitle: jobDetails.jobTitle || '',
+            ops: jobsMap[jobNumber]
+          };
+        });
 
         try {
           const savedBill = await billsAPI.create(contractorName, jobs);
@@ -1532,6 +1557,7 @@
           billData = [];
           hasUnsavedBillData = false;
           pendingQtyCache = {}; // Clear pending qty cache
+          jobDetailsMap = {}; // Clear job details map
           
           // Reset all checkboxes
           resetAllCheckboxes();
