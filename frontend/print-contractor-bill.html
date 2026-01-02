@@ -188,40 +188,70 @@
           return y + rowHeight;
         }
         
-        // Function to draw table row
+        // Function to draw table row with text wrapping for Client Name and Job Title
         function drawTableRow(y, values, isAlt) {
+          doc.setFont(undefined, 'normal');
+          doc.setFontSize(9);
+          
+          // Wrap text for Client Name (index 1) and Job Title (index 2)
+          // Calculate available width for wrapping (column width minus padding)
+          const padding = 6; // 3mm on each side
+          const wrappedTexts = values.map((val, i) => {
+            const text = String(val || '');
+            // Only wrap Client Name (index 1) and Job Title (index 2)
+            if (i === 1 || i === 2) {
+              const availableWidth = colWidths[i] - padding;
+              // Split text into multiple lines that fit within the column width
+              const lines = doc.splitTextToSize(text, availableWidth);
+              return lines;
+            }
+            return [text]; // Other columns: single line
+          });
+          
+          // Calculate the maximum number of lines needed (for row height)
+          const maxLines = Math.max(...wrappedTexts.map(lines => lines.length));
+          const lineHeight = 4.5; // Height per line in mm
+          const minRowHeight = 9; // Minimum row height
+          const actualRowHeight = Math.max(minRowHeight, maxLines * lineHeight);
+          
           // Row background
           if (isAlt) {
             doc.setFillColor(245, 245, 250);
-            doc.rect(margin, y, tableWidth, rowHeight, 'F');
+            doc.rect(margin, y, tableWidth, actualRowHeight, 'F');
           }
           
           // Cell borders
           doc.setDrawColor(220, 220, 220);
           doc.setLineWidth(0.1);
-          doc.line(margin, y + rowHeight, margin + tableWidth, y + rowHeight);
+          doc.line(margin, y + actualRowHeight, margin + tableWidth, y + actualRowHeight);
           
           // Vertical lines
           colX.forEach((x, i) => {
             if (i > 0) {
-              doc.line(x, y, x, y + rowHeight);
+              doc.line(x, y, x, y + actualRowHeight);
             }
           });
           
           // Cell content
-          doc.setFont(undefined, 'normal');
-          doc.setFontSize(9);
           doc.setTextColor(50, 50, 50);
           
           values.forEach((val, i) => {
-            // First 4 columns (Job Number, Client Name, Job Title, Operation) are left-aligned
-            // Last 4 columns (Qty/Book, Rate, Qty Completed, Total Value) are right-aligned
+            const lines = wrappedTexts[i];
             const cellX = i < 4 ? colX[i] + 3 : colX[i] + colWidths[i] - 3;
             const align = i < 4 ? 'left' : 'right';
-            doc.text(String(val), cellX, y + rowHeight - 2.5, { align: align });
+            
+            // Calculate starting Y position (center vertically if multiple lines)
+            const totalTextHeight = lines.length * lineHeight;
+            const startY = y + (actualRowHeight - totalTextHeight) / 2 + lineHeight;
+            
+            // Draw each line of text
+            lines.forEach((line, lineIndex) => {
+              const lineY = startY + (lineIndex * lineHeight);
+              doc.text(line, cellX, lineY, { align: align });
+            });
           });
           
-          return y + rowHeight;
+          return y + actualRowHeight;
         }
         
         // Draw table header
