@@ -175,6 +175,9 @@
       let seriesJobs = []; // Array to store multiple jobs from series
       let currentSeriesId = null; // Store series ID when pulling series
       let allOperations = []; // Store all operations for type lookup
+      // Store clientName and jobTitle per job number
+      // Structure: { jobNumber: { clientName: '', jobTitle: '' } }
+      let jobDetailsMap = {};
 
       // Load all operations on page load
       async function loadOperations() {
