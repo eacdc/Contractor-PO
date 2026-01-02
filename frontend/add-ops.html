@@ -1542,6 +1542,23 @@
               return;
             }
 
+            // Check if any job is already in another series (only if not pulling from existing series)
+            if (!shouldPullSeries) {
+              for (const jobNum of jobsToAdd) {
+                try {
+                  const seriesCheck = await seriesAPI.searchByJobNumber(jobNum);
+                  if (seriesCheck.found) {
+                    jobSearchError.textContent = `Job number "${jobNum}" is already in another series. A job cannot be added to multiple series.`;
+                    jobSearchError.style.display = 'block';
+                    return;
+                  }
+                } catch (checkError) {
+                  // If check fails, continue (don't block adding the job)
+                  console.error('Error checking series for job:', checkError);
+                }
+              }
+            }
+
             // Add all jobs
             const addPromises = jobsToAdd.map(jn => addJobToMultipleList(jn));
             const results = await Promise.all(addPromises);
@@ -2192,8 +2209,13 @@
                 await seriesAPI.create(jobNumbers);
                 console.log('Job numbers saved to Series:', jobNumbers);
               } catch (seriesError) {
-                console.error('Error saving to Series (non-critical):', seriesError);
-                // Don't fail the entire operation if Series save fails
+                console.error('Error saving to Series:', seriesError);
+                // Show error message to user if series creation fails
+                if (multipleJobsAddOpsWarning) {
+                  multipleJobsAddOpsWarning.textContent = seriesError.message || 'Error saving to Series. Some jobs may already be in another series.';
+                  multipleJobsAddOpsWarning.style.color = "#ef4444";
+                }
+                // Don't fail the entire operation if Series save fails, but show warning
               }
             } else {
               console.log('Skipping series creation - using existing series ID:', currentSeriesId);
