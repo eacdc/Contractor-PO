@@ -441,8 +441,9 @@
 
         if (filtered.length === 0) {
           tableHead.innerHTML = '';
+          const colspan = isPaid ? 5 : 6; // Paid: 5 columns, Unpaid: 6 columns
           tableBody.innerHTML =
-            '<tr><td colspan="5">No ' +
+            `<tr><td colspan="${colspan}">No ` +
             (isPaid ? 'paid' : 'unpaid') +
             ' bills found for this contractor.</td></tr>';
           return;
@@ -455,6 +456,7 @@
               <th>Paid Date</th>
               <th>Total Amount</th>
               <th>Download</th>
+              <th>Delete</th>
             </tr>
           `;
         } else {
@@ -465,6 +467,7 @@
               <th>Total Amount</th>
               <th>Download</th>
               <th>Pay</th>
+              <th>Delete</th>
             </tr>
           `;
         }
@@ -487,6 +490,11 @@
                   Download
                 </button>
               </td>
+              <td>
+                <button class="secondary-btn primary-btn--sm bill-delete-btn" data-bill="${bill.billNumber}" title="Delete Bill">
+                  🗑️
+                </button>
+              </td>
             `;
           } else {
             tr.innerHTML = `
@@ -501,6 +509,11 @@
               <td>
                 <button class="primary-btn primary-btn--sm bill-pay-btn" data-bill="${bill.billNumber}">
                   Pay
+                </button>
+              </td>
+              <td>
+                <button class="secondary-btn primary-btn--sm bill-delete-btn" data-bill="${bill.billNumber}" title="Delete Bill">
+                  🗑️
                 </button>
               </td>
             `;
@@ -567,6 +580,13 @@
           if (billNumber) {
             if (confirm(`Are you sure you want to mark bill ${billNumber} as paid?`)) {
               await markBillAsPaid(billNumber);
+            }
+          }
+        } else if (target.classList.contains('bill-delete-btn')) {
+          const billNumber = target.getAttribute('data-bill');
+          if (billNumber) {
+            if (confirm(`Are you sure you want to delete bill ${billNumber}? This will restore pending quantities in JobopsMaster and update completed quantities in Contractor_WD. This action cannot be undone.`)) {
+              await deleteBill(billNumber);
             }
           }
         }
