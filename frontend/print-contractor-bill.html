@@ -601,7 +601,7 @@
         } else if (target.classList.contains('bill-delete-btn')) {
           const billNumber = target.getAttribute('data-bill');
           if (billNumber) {
-            if (confirm(`Are you sure you want to delete bill ${billNumber}? This will restore pending quantities in JobopsMaster and update completed quantities in Contractor_WD. This action cannot be undone.`)) {
+            if (confirm(`Are you sure you want to delete bill ${billNumber}? This will restore pending quantities and update completed quantities in the database. This action cannot be undone.`)) {
               await deleteBill(billNumber);
             }
           }
