@@ -73,7 +73,7 @@ export const jobsAPI = {
   // Get job details from MSSQL
   getJobDetails: (jobNumber) => apiCall(`/jobs/details/${encodeURIComponent(jobNumber)}`),
   // Delete an operation from JobopsMaster
-  deleteOperationFromJob: (jobNumber, opId) => apiCall(`/jobs/jobopsmaster/${encodeURIComponent(jobNumber)}/operation/${encodeURIComponent(opId)}`, {
+  deleteOperationFromJob: (jobNumber, opId) => apiCall(`/jobs/jobopsmaster/operation?jobNumber=${encodeURIComponent(jobNumber)}&opId=${encodeURIComponent(opId)}`, {
     method: 'DELETE'
   })
 };
