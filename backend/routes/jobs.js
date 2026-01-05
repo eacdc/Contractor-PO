@@ -948,7 +948,55 @@ router.get('/details-update/:jobNumber', async (req, res) => {
   }
 });
 
+// Delete an operation from JobopsMaster
+// Use query parameters instead of path params to handle special characters in job numbers
+router.delete('/jobopsmaster/operation', async (req, res) => {
+  try {
+    const { jobNumber, opId } = req.query;
 
+    if (!jobNumber || !opId) {
+      return res.status(400).json({ error: 'Job number and operation ID are required' });
+    }
+
+    // Find the job in JobopsMaster
+    const jobOpsMaster = await JobopsMaster.findOne({ jobId: jobNumber });
+
+    if (!jobOpsMaster) {
+      return res.status(404).json({ error: 'Job not found in JobopsMaster' });
+    }
+
+    // Find the operation index
+    const opIndex = jobOpsMaster.ops.findIndex(op => String(op.opId) === String(opId));
+
+    if (opIndex === -1) {
+      return res.status(404).json({ error: 'Operation not found in this job' });
+    }
+
+    const operation = jobOpsMaster.ops[opIndex];
+
+    // Check if totalOpsQty equals pendingOpsQty (no work has been done)
+    if (operation.totalOpsQty !== operation.pendingOpsQty) {
+      return res.status(400).json({ 
+        error: 'Cannot delete operation. Work has already been completed on this operation.' 
+      });
+    }
+
+    // Remove the operation from the array
+    jobOpsMaster.ops.splice(opIndex, 1);
+
+    // Save the updated document
+    await jobOpsMaster.save();
+
+    res.json({ 
+      message: 'Operation deleted successfully',
+      jobNumber,
+      opId
+    });
+  } catch (error) {
+    console.error('Error deleting operation from JobopsMaster:', error);
+    res.status(500).json({ error: 'Error deleting operation', details: error.message });
+  }
+});
 
 module.exports = router;
 
