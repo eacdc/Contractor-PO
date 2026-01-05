@@ -71,7 +71,11 @@ export const jobsAPI = {
   // Search job numbers from MSSQL (4+ digits)
   searchJobNumbers: (jobNumberPart) => apiCall(`/jobs/search-numbers/${encodeURIComponent(jobNumberPart)}`),
   // Get job details from MSSQL
-  getJobDetails: (jobNumber) => apiCall(`/jobs/details/${encodeURIComponent(jobNumber)}`)
+  getJobDetails: (jobNumber) => apiCall(`/jobs/details/${encodeURIComponent(jobNumber)}`),
+  // Delete an operation from JobopsMaster
+  deleteOperationFromJob: (jobNumber, opId) => apiCall(`/jobs/jobopsmaster/${encodeURIComponent(jobNumber)}/operation/${encodeURIComponent(opId)}`, {
+    method: 'DELETE'
+  })
 };
 
 // Operations API

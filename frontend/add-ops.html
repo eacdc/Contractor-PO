@@ -698,6 +698,11 @@
               pendingTh.textContent = 'Pending';
               headerRow.appendChild(pendingTh);
 
+              // Add Action column header
+              const actionTh = document.createElement('th');
+              actionTh.textContent = 'Action';
+              headerRow.appendChild(actionTh);
+
               // Rows: each op, with qty per contractor + pending
               previousOps.operations.forEach(op => {
                 const row = document.createElement('tr');
@@ -715,6 +720,22 @@
                 const pending = op.pending !== undefined ? op.pending : (op.totalOpsQty || 0);
                 cellsHtml += `<td>${pending}</td>`;
 
+                // Add delete button if totalOpsQty === pending (no work done)
+                const totalOpsQty = op.totalOpsQty || 0;
+                if (totalOpsQty === pending) {
+                  cellsHtml += `<td>
+                    <button class="secondary-btn primary-btn--sm delete-op-btn" 
+                            data-job-number="${jobNumber}" 
+                            data-op-id="${op.opsId}" 
+                            data-op-name="${op.opsName}"
+                            title="Delete Operation">
+                      🗑️
+                    </button>
+                  </td>`;
+                } else {
+                  cellsHtml += `<td>-</td>`;
+                }
+
                 row.innerHTML = cellsHtml;
                 prevOpsBody.appendChild(row);
               });
@@ -728,10 +749,33 @@
               pendingTh.textContent = 'Pending';
               headerRow.appendChild(pendingTh);
 
+              // Add Action column header
+              const actionTh = document.createElement('th');
+              actionTh.textContent = 'Action';
+              headerRow.appendChild(actionTh);
+
               previousOps.operations.forEach(op => {
                 const row = document.createElement('tr');
                 const pending = op.pending !== undefined ? op.pending : (op.totalOpsQty || 0);
-                row.innerHTML = `<td>${op.opsName}</td><td>0</td><td>${pending}</td>`;
+                const totalOpsQty = op.totalOpsQty || 0;
+                
+                // Add delete button if totalOpsQty === pending (no work done)
+                let actionCell = '';
+                if (totalOpsQty === pending) {
+                  actionCell = `<td>
+                    <button class="secondary-btn primary-btn--sm delete-op-btn" 
+                            data-job-number="${jobNumber}" 
+                            data-op-id="${op.opsId}" 
+                            data-op-name="${op.opsName}"
+                            title="Delete Operation">
+                      🗑️
+                    </button>
+                  </td>`;
+                } else {
+                  actionCell = '<td>-</td>';
+                }
+                
+                row.innerHTML = `<td>${op.opsName}</td><td>0</td><td>${pending}</td>${actionCell}`;
                 prevOpsBody.appendChild(row);
               });
             }
@@ -762,8 +806,8 @@
           // a table with one row saying "No previous ops found".
           const headerRow = document.getElementById('prevOpsHeader');
           const prevOpsBody = document.getElementById('prevOpsBody');
-          headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th><th>Pending</th>';
-          prevOpsBody.innerHTML = '<tr><td colspan="3">No previous ops found</td></tr>';
+          headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th><th>Pending</th><th>Action</th>';
+          prevOpsBody.innerHTML = '<tr><td colspan="4">No previous ops found</td></tr>';
 
           // Mark that a job has been searched (even if not found)
           hasSearchedJob = true;
@@ -1681,7 +1725,7 @@
       // Create previous ops section for a job
       function createPreviousOpsSection(jobData) {
         const section = document.createElement('section');
-        section.classList.add('panel', 'panel--collapsible');
+        section.classList.add('panel', 'panel--collapsible', 'previous-ops-section');
         
         const header = document.createElement('header');
         header.classList.add('panel-header');
@@ -1715,6 +1759,11 @@
             pendingTh.textContent = 'Pending';
             headerRow.appendChild(pendingTh);
             
+            // Add Action column header
+            const actionTh = document.createElement('th');
+            actionTh.textContent = 'Action';
+            headerRow.appendChild(actionTh);
+            
             jobData.previousOps.operations.forEach(op => {
               const row = document.createElement('tr');
               let cellsHtml = `<td>${op.opsName}</td>`;
@@ -1727,22 +1776,56 @@
               const pending = op.pending !== undefined ? op.pending : (op.totalOpsQty || 0);
               cellsHtml += `<td>${pending}</td>`;
               
+              // Add delete button if totalOpsQty === pending (no work done)
+              const totalOpsQty = op.totalOpsQty || 0;
+              if (totalOpsQty === pending) {
+                cellsHtml += `<td>
+                  <button class="secondary-btn primary-btn--sm delete-op-btn" 
+                          data-job-number="${jobData.jobNumber}" 
+                          data-op-id="${op.opsId}" 
+                          data-op-name="${op.opsName}"
+                          title="Delete Operation">
+                    🗑️
+                  </button>
+                </td>`;
+              } else {
+                cellsHtml += `<td>-</td>`;
+              }
+              
               row.innerHTML = cellsHtml;
               tbody.appendChild(row);
             });
           } else {
-            headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th><th>Pending</th>';
+            headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th><th>Pending</th><th>Action</th>';
             jobData.previousOps.operations.forEach(op => {
               const row = document.createElement('tr');
               const pending = op.pending !== undefined ? op.pending : (op.totalOpsQty || 0);
-              row.innerHTML = `<td>${op.opsName}</td><td>0</td><td>${pending}</td>`;
+              const totalOpsQty = op.totalOpsQty || 0;
+              
+              // Add delete button if totalOpsQty === pending (no work done)
+              let actionCell = '';
+              if (totalOpsQty === pending) {
+                actionCell = `<td>
+                  <button class="secondary-btn primary-btn--sm delete-op-btn" 
+                          data-job-number="${jobData.jobNumber}" 
+                          data-op-id="${op.opsId}" 
+                          data-op-name="${op.opsName}"
+                          title="Delete Operation">
+                    🗑️
+                  </button>
+                </td>`;
+              } else {
+                actionCell = '<td>-</td>';
+              }
+              
+              row.innerHTML = `<td>${op.opsName}</td><td>0</td><td>${pending}</td>${actionCell}`;
               tbody.appendChild(row);
             });
           }
           
           thead.appendChild(headerRow);
         } else {
-          thead.innerHTML = '<tr><th>Ops</th><th>Completed Qty</th><th>Pending</th></tr>';
+          thead.innerHTML = '<tr><th>Ops</th><th>Completed Qty</th><th>Pending</th><th>Action</th></tr>';
         }
         
         table.appendChild(thead);
@@ -2438,6 +2521,82 @@
 
       // Load operations on page load
       loadOperations();
+
+      // Handle delete operation button clicks (event delegation for dynamic content)
+      document.addEventListener('click', async (e) => {
+        if (e.target && e.target.classList.contains('delete-op-btn')) {
+          const jobNumber = e.target.getAttribute('data-job-number');
+          const opId = e.target.getAttribute('data-op-id');
+          const opName = e.target.getAttribute('data-op-name');
+
+          if (!jobNumber || !opId) {
+            console.error('Missing job number or operation ID');
+            return;
+          }
+
+          if (confirm(`Are you sure you want to delete operation "${opName}" from job ${jobNumber}? This action cannot be undone.`)) {
+            try {
+              await jobsAPI.deleteOperationFromJob(jobNumber, opId);
+              
+              // Show success message
+              const jobSearchError = document.getElementById('jobSearchError');
+              if (jobSearchError) {
+                jobSearchError.textContent = `Operation "${opName}" deleted successfully!`;
+                jobSearchError.style.color = '#4ade80';
+                jobSearchError.style.display = 'block';
+                setTimeout(() => {
+                  jobSearchError.textContent = '';
+                  jobSearchError.style.display = 'none';
+                }, 3000);
+              }
+
+              // Reload previous ops by searching the job again
+              const jobNumberInput = document.getElementById('jobNumber');
+              if (jobNumberInput && jobNumberInput.value.trim() === jobNumber) {
+                // Single job mode: Trigger job search again to refresh previous ops
+                const jobSearchBtn = document.getElementById('jobSearchBtn');
+                if (jobSearchBtn) {
+                  jobSearchBtn.click();
+                }
+              } else {
+                // Multiple jobs mode: find and refresh that job's previous ops
+                const jobData = multipleJobs.find(j => j.jobNumber === jobNumber);
+                if (jobData) {
+                  try {
+                    const result = await jobsAPI.search(jobNumber);
+                    jobData.previousOps = result.previousOps;
+                    
+                    // Find the job row and update its previous ops section
+                    const jobRow = document.getElementById(`job-row-${jobNumber}`);
+                    if (jobRow) {
+                      // Find and update the previous ops section
+                      const existingPrevOpsSection = jobRow.querySelector('.previous-ops-section');
+                      if (existingPrevOpsSection) {
+                        const newPrevOpsSection = createPreviousOpsSection(jobData);
+                        existingPrevOpsSection.replaceWith(newPrevOpsSection);
+                      }
+                    }
+                  } catch (error) {
+                    console.error('Error refreshing previous ops:', error);
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('Error deleting operation:', error);
+              const jobSearchError = document.getElementById('jobSearchError');
+              if (jobSearchError) {
+                jobSearchError.textContent = error.message || 'Error deleting operation. Please try again.';
+                jobSearchError.style.color = '#ef4444';
+                jobSearchError.style.display = 'block';
+                setTimeout(() => {
+                  jobSearchError.textContent = '';
+                  jobSearchError.style.display = 'none';
+                }, 3000);
+              }
+            }
+          }
+        }
+      });
     </script>
   </body>
   </html>
