@@ -21,6 +21,11 @@ const contractorSchema = new mongoose.Schema({
     type: Date,
     default: Date.now,
   },
+  isdeleted: {
+    type: Number,
+    default: 0,
+    enum: [0, 1],
+  },
 }, {
   collection: 'Contractor',
 });

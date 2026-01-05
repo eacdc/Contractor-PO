@@ -14,6 +14,16 @@ const opsDoneSubSchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
+  opsName: {
+    type: String,
+    required: true,
+    trim: true,
+  },
+  valuePerBook: {
+    type: Number,
+    required: true,
+    min: 0,
+  },
   opsDoneQty: {
     type: Number,
     required: true,

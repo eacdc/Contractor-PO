@@ -463,7 +463,7 @@
 
         if (filtered.length === 0) {
           tableHead.innerHTML = '';
-          const colspan = isPaid ? 4 : 6; // Paid: 4 columns, Unpaid: 6 columns
+          const colspan = isPaid ? 5 : 6; // Paid: 5 columns, Unpaid: 6 columns
           tableBody.innerHTML =
             `<tr><td colspan="${colspan}">No ` +
             (isPaid ? 'paid' : 'unpaid') +
@@ -478,6 +478,7 @@
               <th>Paid Date</th>
               <th>Total Amount</th>
               <th>Download</th>
+              <th>Delete</th>
             </tr>
           `;
         } else {
@@ -509,6 +510,11 @@
               <td>
                 <button class="secondary-btn primary-btn--sm bill-download-btn" data-bill="${bill.billNumber}">
                   Download
+                </button>
+              </td>
+              <td>
+                <button class="secondary-btn primary-btn--sm bill-delete-btn" data-bill="${bill.billNumber}" title="Delete Bill">
+                  🗑️
                 </button>
               </td>
             `;

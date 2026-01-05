@@ -1,11 +1,11 @@
 const sql = require('mssql');
 
 const config = {
-  server: 'cdcindas.24mycloud.com',
-  port: 51175,
-  database: 'IndusEnterprise',
-  user: 'indus',
-  password: 'Param@99811',
+  server: process.env.MSSQL_SERVER || 'cdcindas.24mycloud.com',
+  port: parseInt(process.env.MSSQL_PORT || '51175'),
+  database: process.env.MSSQL_DATABASE || 'IndusEnterprise',
+  user: process.env.MSSQL_USER || 'indus',
+  password: process.env.MSSQL_PASSWORD || 'Param@99811',
   connectionTimeout: 10000, // 10 seconds to establish connection
   requestTimeout: 30000, // 30 seconds for queries to complete
   pool: {

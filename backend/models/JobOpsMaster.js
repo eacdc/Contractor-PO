@@ -59,6 +59,16 @@ const jobOpsMasterSchema = new mongoose.Schema({
     required: true,
     min: 0,
   },
+  clientName: {
+    type: String,
+    trim: true,
+    default: '',
+  },
+  jobTitle: {
+    type: String,
+    trim: true,
+    default: '',
+  },
   ops: [jobOpSubSchema],
 }, {
   collection: 'JobopsMaster',

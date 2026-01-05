@@ -2,11 +2,11 @@ const express = require('express');
 const router = express.Router();
 const Operation = require('../models/Operation');
 
-// Get all operations
+// Get all operations (only active ones - isdeleted = 0)
 router.get('/', async (req, res) => {
   try {
     const { search } = req.query;
-    let query = {};
+    let query = { isdeleted: 0 };
 
     if (search) {
       query.opsName = { $regex: search, $options: 'i' };
@@ -49,13 +49,13 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ error: 'Operation name, type, and rate/unit are required' });
     }
 
-    const ratePerUnitNum = Number(ratePerUnit);
+    const ratePerUnitNum = parseFloat(Number(ratePerUnit).toFixed(4));
     if (isNaN(ratePerUnitNum) || ratePerUnitNum < 0) {
       return res.status(400).json({ error: 'Rate/unit must be a valid number greater than or equal to 0' });
     }
 
-    // Check if operation already exists
-    const existingOp = await Operation.findOne({ opsName });
+    // Check if operation already exists (only active ones)
+    const existingOp = await Operation.findOne({ opsName, isdeleted: 0 });
     if (existingOp) {
       return res.status(400).json({ error: 'Operation already exists' });
     }
@@ -63,7 +63,8 @@ router.post('/', async (req, res) => {
     const operation = new Operation({
       opsName,
       type,
-      ratePerUnit: ratePerUnitNum
+      ratePerUnit: ratePerUnitNum,
+      isdeleted: 0
     });
 
     await operation.save();
@@ -89,7 +90,7 @@ router.put('/:id', async (req, res) => {
       return res.status(400).json({ error: 'Operation name, type, and rate/unit are required' });
     }
 
-    const ratePerUnitNum = Number(ratePerUnit);
+    const ratePerUnitNum = parseFloat(Number(ratePerUnit).toFixed(4));
     if (isNaN(ratePerUnitNum) || ratePerUnitNum < 0) {
       return res.status(400).json({ error: 'Rate/unit must be a valid number greater than or equal to 0' });
     }
@@ -111,10 +112,14 @@ router.put('/:id', async (req, res) => {
   }
 });
 
-// Delete operation
+// Delete operation (soft delete - set isdeleted = 1)
 router.delete('/:id', async (req, res) => {
   try {
-    const operation = await Operation.findByIdAndDelete(req.params.id);
+    const operation = await Operation.findByIdAndUpdate(
+      req.params.id,
+      { isdeleted: 1 },
+      { new: true }
+    );
     if (!operation) {
       return res.status(404).json({ error: 'Operation not found' });
     }

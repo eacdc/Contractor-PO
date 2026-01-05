@@ -44,6 +44,16 @@ const jobSubSchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
+  clientName: {
+    type: String,
+    trim: true,
+    default: '',
+  },
+  jobTitle: {
+    type: String,
+    trim: true,
+    default: '',
+  },
   ops: [operationSubSchema],
 }, { _id: false });
 
@@ -69,6 +79,11 @@ const billSchema = new mongoose.Schema({
   paymentDate: {
     type: Date,
     default: null,
+  },
+  isDeleted: {
+    type: Number,
+    default: 0,
+    enum: [0, 1],
   },
   jobs: [jobSubSchema],
 }, {

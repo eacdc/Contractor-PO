@@ -135,10 +135,10 @@ router.get('/search/:jobNumber', async (req, res) => {
 
 
         // Aggregate completed quantities by operation and contractor
-
+        // Use opId as key for matching
         const quantitiesByOpAndContractor = {};
 
-        const totalCompletedByOp = {}; // Track total completed across all contractors
+        const totalCompletedByOp = {}; // Track total completed across all contractors (key: opId)
 
 
 
@@ -154,35 +154,37 @@ router.get('/search/:jobNumber', async (req, res) => {
 
             }
 
-            // Only count if this opId exists in JobopsMaster
+            // Use opId as key for matching
+            const opKey = String(od.opsId);
 
+            // Only count if this opId exists in JobopsMaster (preliminary check)
             if (opIds.includes(od.opsId)) {
 
-              if (!quantitiesByOpAndContractor[od.opsId]) {
+              if (!quantitiesByOpAndContractor[opKey]) {
 
-                quantitiesByOpAndContractor[od.opsId] = {};
-
-              }
-
-              if (!quantitiesByOpAndContractor[od.opsId][contractorId]) {
-
-                quantitiesByOpAndContractor[od.opsId][contractorId] = 0;
+                quantitiesByOpAndContractor[opKey] = {};
 
               }
 
-              quantitiesByOpAndContractor[od.opsId][contractorId] += od.opsDoneQty;
+              if (!quantitiesByOpAndContractor[opKey][contractorId]) {
+
+                quantitiesByOpAndContractor[opKey][contractorId] = 0;
+
+              }
+
+              quantitiesByOpAndContractor[opKey][contractorId] += od.opsDoneQty;
 
               
 
               // Track total completed for this operation
 
-              if (!totalCompletedByOp[od.opsId]) {
+              if (!totalCompletedByOp[opKey]) {
 
-                totalCompletedByOp[od.opsId] = 0;
+                totalCompletedByOp[opKey] = 0;
 
               }
 
-              totalCompletedByOp[od.opsId] += od.opsDoneQty;
+              totalCompletedByOp[opKey] += od.opsDoneQty;
 
             }
 
@@ -193,6 +195,7 @@ router.get('/search/:jobNumber', async (req, res) => {
 
 
         // Build previousOps from JobopsMaster.ops
+        // Match using opId only
 
         previousOps = {
 
@@ -207,8 +210,14 @@ router.get('/search/:jobNumber', async (req, res) => {
           operations: jobOpsMaster.ops.map(op => {
 
             const totalOpsQty = op.totalOpsQty || 0;
+            
+            // Get opsName for this operation
+            const opOpsName = opsNameById[op.opId] || 'Unknown';
+            
+            // Use opId as key for matching
+            const opKey = String(op.opId);
 
-            const totalCompleted = totalCompletedByOp[op.opId] || 0;
+            const totalCompleted = totalCompletedByOp[opKey] || 0;
 
             const pending = Math.max(0, totalOpsQty - totalCompleted);
 
@@ -218,7 +227,7 @@ router.get('/search/:jobNumber', async (req, res) => {
 
               opsId: op.opId,
 
-              opsName: opsNameById[op.opId] || 'Unknown',
+              opsName: opOpsName,
 
               totalOpsQty,
 
@@ -228,7 +237,7 @@ router.get('/search/:jobNumber', async (req, res) => {
 
               quantitiesByContractor:
 
-                quantitiesByOpAndContractor[op.opId] || {}
+                quantitiesByOpAndContractor[opKey] || {}
 
             };
 
@@ -468,7 +477,11 @@ router.post('/jobopsmaster', async (req, res) => {
 
       operations,
 
-      qty
+      qty,
+
+      clientName,
+
+      jobTitle
 
     } = req.body;
 
@@ -486,7 +499,19 @@ router.post('/jobopsmaster', async (req, res) => {
 
     const totalQty = Number(qty || 0);
 
-
+    // Fetch all operations to get their types and names for calculation
+    const operationIds = operations.map(op => op.operationId).filter(Boolean);
+    const operationDocs = await Operation.find({ _id: { $in: operationIds } });
+    const operationTypeMap = {};
+    const operationNameMap = {};
+    operationDocs.forEach(op => {
+      // Normalize ID to string for consistent lookup
+      const idStr = op._id.toString();
+      operationTypeMap[idStr] = op.type;
+      operationNameMap[idStr] = op.opsName;
+    });
+    
+    console.log('Operation Type Map:', JSON.stringify(operationTypeMap, null, 2));
 
     const ops = operations
 
@@ -504,7 +529,7 @@ router.post('/jobopsmaster', async (req, res) => {
 
         const qtyPerBookNum = Number(qtyPerBook);
 
-        const valuePerBookNum = Number(ratePerBook);
+        const valuePerBookNum = parseFloat(Number(ratePerBook).toFixed(4));
 
 
 
@@ -514,9 +539,39 @@ router.post('/jobopsmaster', async (req, res) => {
 
         }
 
-
-
-        const totalOpsQty = qtyPerBookNum * totalQty;
+        // Get operation type and name - normalize operationId to string for lookup
+        const opIdStr = String(operationId);
+        const operationType = operationTypeMap[opIdStr];
+        const opsName = operationNameMap[opIdStr] || 'Unknown';
+        
+        // For 1/x operations: save qtyPerBook as (1/qtyPerBook value) and totalOpsQty = totalQty
+        // For 1*x operations: save qtyPerBook as is and totalOpsQty = totalQty
+        // For 1:1 operations: save qtyPerBook as is and totalOpsQty = qtyPerBook * totalQty
+        let savedQtyPerBook;
+        let totalOpsQty;
+        if (operationType === '1/x') {
+          // For 1/x: save qtyPerBook as 1/qtyPerBook (e.g., if user enters 4, save 1/4 = 0.25)
+          savedQtyPerBook = qtyPerBookNum > 0 ? parseFloat((1 / qtyPerBookNum).toFixed(4)) : 0;
+          // For 1/x: totalOpsQty = totalQty (no calculation)
+          totalOpsQty = totalQty;
+          console.log(`[1/x] Operation ${opIdStr}: totalQty=${totalQty}, user qtyPerBook=${qtyPerBookNum}, saved qtyPerBook=${savedQtyPerBook}, totalOpsQty=${totalOpsQty}`);
+        } else if (operationType === '1*x') {
+          // For 1*x: save qtyPerBook as is (no conversion)
+          savedQtyPerBook = qtyPerBookNum;
+          // For 1*x: totalOpsQty = totalQty (no calculation)
+          totalOpsQty = totalQty;
+          console.log(`[1*x] Operation ${opIdStr}: totalQty=${totalQty}, qtyPerBook=${qtyPerBookNum}, totalOpsQty=${totalOpsQty}`);
+        } else {
+          // For 1:1: save qtyPerBook as is
+          savedQtyPerBook = qtyPerBookNum;
+          // For 1:1: totalOpsQty = qtyPerBook * totalQty
+          totalOpsQty = qtyPerBookNum * totalQty;
+          if (operationType) {
+            console.log(`[${operationType}] Operation ${opIdStr}: totalQty=${totalQty}, qtyPerBook=${qtyPerBookNum}, totalOpsQty=${totalOpsQty}`);
+          } else {
+            console.log(`[WARNING: Operation type not found] Operation ${opIdStr}: totalQty=${totalQty}, qtyPerBook=${qtyPerBookNum}, totalOpsQty=${totalOpsQty} (using default multiplication)`);
+          }
+        }
 
 
 
@@ -524,7 +579,7 @@ router.post('/jobopsmaster', async (req, res) => {
 
           opId: String(operationId),
 
-          qtyPerBook: qtyPerBookNum,
+          qtyPerBook: savedQtyPerBook,
 
           totalOpsQty,
 
@@ -564,6 +619,10 @@ router.post('/jobopsmaster', async (req, res) => {
 
         totalQty,
 
+        clientName: clientName || '',
+
+        jobTitle: jobTitle || '',
+
         ops
 
       });
@@ -574,26 +633,54 @@ router.post('/jobopsmaster', async (req, res) => {
 
       jobOpsMaster.totalQty = totalQty;
 
+      // Update clientName and jobTitle if provided
+
+      if (clientName !== undefined) {
+
+        jobOpsMaster.clientName = clientName || '';
+
+      }
+
+      if (jobTitle !== undefined) {
+
+        jobOpsMaster.jobTitle = jobTitle || '';
+
+      }
+
       
 
-      // Get existing opIds to avoid duplicates
+      // Fetch operation names for existing operations in JobOpsMaster
+      const existingOpIds = jobOpsMaster.ops.map(existingOp => existingOp.opId).filter(Boolean);
+      const allOpIds = [...new Set([...operationIds, ...existingOpIds])];
+      const allOperationDocs = await Operation.find({ _id: { $in: allOpIds } });
+      const allOperationNameMap = {};
+      allOperationDocs.forEach(op => {
+        const idStr = op._id.toString();
+        allOperationNameMap[idStr] = op.opsName;
+      });
 
-      const existingOpIds = new Set(jobOpsMaster.ops.map(existingOp => existingOp.opId));
-
-      
-
-      // Filter out new ops that already exist (same opId)
-
-      const newOpsToAdd = ops.filter(newOp => !existingOpIds.has(newOp.opId));
-
-      
-
-      // Append new operations to existing ones
-
-      if (newOpsToAdd.length > 0) {
-
-        jobOpsMaster.ops = [...jobOpsMaster.ops, ...newOpsToAdd];
-
+      // Process each new operation
+      // Use opId as unique key - prevent duplicate operations regardless of valuePerBook
+      for (const newOp of ops) {
+        // Get opsName for this operation
+        const opIdStr = String(newOp.opId);
+        const opsName = allOperationNameMap[opIdStr] || 'Unknown';
+        
+        // Find existing operation with same opId (prevent duplicates by operation ID only)
+        const existingOpIndex = jobOpsMaster.ops.findIndex(existingOp => {
+          const existingOpIdStr = String(existingOp.opId);
+          return existingOpIdStr === opIdStr;
+        });
+        
+        if (existingOpIndex !== -1) {
+          // Operation already exists - reject duplicate
+          return res.status(400).json({ 
+            error: `Operation "${opsName}" is already added to this job. Duplicate operations are not allowed.` 
+          });
+        } else {
+          // Add new operation
+          jobOpsMaster.ops.push(newOp);
+        }
       }
 
     }
@@ -795,6 +882,70 @@ router.get('/details/:jobNumber', async (req, res) => {
 
   }
 
+});
+
+
+
+// Get job details for update job card app (with ClientName, JobName, OrderQuantity, PODate)
+router.get('/details-update/:jobNumber', async (req, res) => {
+  try {
+    const { jobNumber } = req.params;
+
+    if (!jobNumber) {
+      return res.status(400).json({ error: 'Job number is required' });
+    }
+
+    const connectionStartTime = Date.now();
+    const pool = await getConnection();
+    const connectionTime = Date.now() - connectionStartTime;
+    console.log(`⏱️ [MSSQL] Connection obtained in ${connectionTime}ms`);
+
+    const request = pool.request();
+    
+    // Query for update job card app
+    const query = `
+      SELECT ClientName, JobName, OrderQuantity, PODate 
+      FROM jobbookingjobcard 
+      WHERE jobbookingno = @JobBookingNo
+    `;
+    
+    request.input('JobBookingNo', sql.NVarChar(255), jobNumber);
+
+    console.log('🔍 [MSSQL] Executing query for update job card with @JobBookingNo =', jobNumber);
+    const queryStartTime = Date.now();
+    const result = await request.query(query);
+    const queryTime = Date.now() - queryStartTime;
+    console.log(`⏱️ [MSSQL] Query executed in ${queryTime}ms`);
+
+    if (result.recordset.length === 0) {
+      return res.status(404).json({ error: 'Job not found' });
+    }
+
+    const jobDetails = result.recordset[0];
+
+    // Format PODate to show only date (no time)
+    let poDateFormatted = null;
+    if (jobDetails.PODate) {
+      const poDate = new Date(jobDetails.PODate);
+      if (!isNaN(poDate.getTime())) {
+        // Format as YYYY-MM-DD
+        const year = poDate.getFullYear();
+        const month = String(poDate.getMonth() + 1).padStart(2, '0');
+        const day = String(poDate.getDate()).padStart(2, '0');
+        poDateFormatted = `${year}-${month}-${day}`;
+      }
+    }
+
+    res.json({
+      clientName: jobDetails.ClientName || jobDetails.clientName || null,
+      jobName: jobDetails.JobName || jobDetails.jobName || null,
+      orderQuantity: jobDetails.OrderQuantity || jobDetails.orderQuantity || 0,
+      poDate: poDateFormatted
+    });
+  } catch (error) {
+    console.error('Error fetching job details for update:', error);
+    res.status(500).json({ error: 'Error fetching job details: ' + error.message });
+  }
 });
 
 

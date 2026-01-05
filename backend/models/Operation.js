@@ -16,6 +16,11 @@ const operationSchema = new mongoose.Schema({
     type: Number,
     required: true,
     min: 0
+  },
+  isdeleted: {
+    type: Number,
+    default: 0,
+    enum: [0, 1],
   }
 }, {
   timestamps: true

@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: contractor-po-backend
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: NODE_ENV
+        value: production
+      - key: MONGODB_URI
+        sync: false  # Set this manually in Render dashboard
+      - key: JWT_SECRET
+        generateValue: true  # Render will generate a secure random value
+      - key: MSSQL_SERVER
+        sync: false  # Set this manually in Render dashboard
+      - key: MSSQL_PORT
+        value: 51175
+      - key: MSSQL_DATABASE
+        sync: false  # Set this manually in Render dashboard
+      - key: MSSQL_USER
+        sync: false  # Set this manually in Render dashboard
+      - key: MSSQL_PASSWORD
+        sync: false  # Set this manually in Render dashboard (mark as secret)
