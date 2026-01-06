@@ -1335,9 +1335,8 @@
               // For other operations, display as-is
               let displayQtyPerBook = op.qtyPerBook || '';
               if (operation.type === '1/x' && op.qtyPerBook > 0) {
-                displayQtyPerBook = (1 / op.qtyPerBook).toFixed(4);
-                // Remove trailing zeros for cleaner display
-                displayQtyPerBook = parseFloat(displayQtyPerBook).toString();
+                // Reverse the conversion and round to nearest integer
+                displayQtyPerBook = Math.round(1 / op.qtyPerBook).toString();
               }
 
               const newRow = document.createElement('tr');
