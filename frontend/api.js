@@ -66,6 +66,9 @@ export const jobsAPI = {
     method: 'POST',
     body: { jobNumber, operations, ...extraJobData }
   }),
+  // Get one JobopsMaster document by job number (used for copy-ops)
+  getJobOpsMasterByJobNumber: (jobNumber) =>
+    apiCall(`/jobs/jobopsmaster/by-job-number?jobNumber=${encodeURIComponent(jobNumber)}`),
   // Get all job numbers from JobopsMaster
   getJobNumbers: () => apiCall('/jobs/jobopsmaster/jobnumbers'),
   // Search job numbers from MSSQL (4+ digits)
