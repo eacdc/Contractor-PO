@@ -332,6 +332,7 @@
 
       let currentJobId = null;
       let jobOpsMasterJobNumbersLoaded = false;
+      let currentCopyOpsTarget = null; // 'single' or 'multiple'
       let allOperations = [];
       let hasSearchedJob = false; // Track if a job has been searched
       let isMultipleJobMode = false; // Track single/multiple job mode
@@ -1303,67 +1304,85 @@
         }
       }
 
-      // Core logic to copy operations from a given job number into the Add New Ops table
-      async function copyOperationsFromJobNumber(trimmedJobNumber) {
-        if (!trimmedJobNumber) return;
+      // Core logic to copy operations from a given job number into a target Add New Ops table
+      async function copyOperationsFromJobNumber(trimmedJobNumber, targetBody, warningElement) {
+        if (!trimmedJobNumber || !targetBody) return;
 
         try {
           const response = await jobsAPI.getJobOpsMasterByJobNumber(trimmedJobNumber);
 
           if (!response || !response.ops || response.ops.length === 0) {
-            addOpsWarning.textContent = `No operations found for job ${trimmedJobNumber}.`;
-            addOpsWarning.style.color = "#ef4444";
-            setTimeout(() => {
-              addOpsWarning.textContent = '';
-              addOpsWarning.style.color = '';
-            }, 3000);
+            if (warningElement) {
+              warningElement.textContent = `No operations found for job ${trimmedJobNumber}.`;
+              warningElement.style.color = "#ef4444";
+              setTimeout(() => {
+                warningElement.textContent = '';
+                warningElement.style.color = '';
+              }, 3000);
+            }
             return;
           }
 
-          if (opsBody) {
-            opsBody.innerHTML = '';
+          // Clear existing rows in the target add ops section
+          targetBody.innerHTML = '';
 
-            for (const op of response.ops) {
-              const operation = allOperations.find(o => String(o._id) === String(op.opId));
+          // Add each operation from the source job
+          for (const op of response.ops) {
+            const operation = allOperations.find(o => String(o._id) === String(op.opId));
 
-              if (operation) {
-                const newRow = document.createElement('tr');
-                newRow.classList.add('ops-row');
-                newRow.innerHTML = `
-                  <td>
-                    <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" value="${operation.opsName}" />
-                  </td>
-                  <td>
-                    <input type="text" name="qtyBook" value="${op.qtyPerBook || ''}" />
-                  </td>
-                  <td>
-                    <input type="number" name="rate" value="1" readonly />
-                  </td>
-                  <td>
-                    <input type="number" name="rateBook" value="1" readonly />
-                  </td>
-                  <td>
-                    <button type="button" class="delete-row-btn" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px; font-size: 18px;" title="Delete row">×</button>
-                  </td>
-                `;
-                opsBody.appendChild(newRow);
+            if (operation) {
+              // For 1/x operations, reverse the conversion: if DB has 0.25 (which was 1/4), display 4
+              // For other operations, display as-is
+              let displayQtyPerBook = op.qtyPerBook || '';
+              if (operation.type === '1/x' && op.qtyPerBook > 0) {
+                displayQtyPerBook = (1 / op.qtyPerBook).toFixed(4);
+                // Remove trailing zeros for cleaner display
+                displayQtyPerBook = parseFloat(displayQtyPerBook).toString();
               }
-            }
 
-            addOpsWarning.textContent = `Copied ${response.ops.length} operation(s) from job ${trimmedJobNumber}.`;
-            addOpsWarning.style.color = "#4ade80";
+              const newRow = document.createElement('tr');
+              newRow.classList.add('ops-row');
+              newRow.innerHTML = `
+                <td>
+                  <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" value="${operation.opsName}" />
+                </td>
+                <td>
+                  <input type="text" name="qtyBook" value="${displayQtyPerBook}" />
+                </td>
+                <td>
+                  <input type="number" name="rate" value="1" readonly />
+                </td>
+                <td>
+                  <input type="number" name="rateBook" value="1" readonly />
+                </td>
+                <td>
+                  <button type="button" class="delete-row-btn" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px; font-size: 18px;" title="Delete row">×</button>
+                </td>
+              `;
+              targetBody.appendChild(newRow);
+              
+              // Calculate rate and rate/book based on operation type and qty/book
+              updateRowPricing(newRow);
+            }
+          }
+
+          if (warningElement) {
+            warningElement.textContent = `Copied ${response.ops.length} operation(s) from job ${trimmedJobNumber}.`;
+            warningElement.style.color = "#4ade80";
             setTimeout(() => {
-              addOpsWarning.textContent = '';
-              addOpsWarning.style.color = '';
+              warningElement.textContent = '';
+              warningElement.style.color = '';
             }, 3000);
           }
         } catch (error) {
-          addOpsWarning.textContent = error.message || `Failed to copy operations from job ${trimmedJobNumber}.`;
-          addOpsWarning.style.color = "#ef4444";
-          setTimeout(() => {
-            addOpsWarning.textContent = '';
-            addOpsWarning.style.color = '';
-          }, 3000);
+          if (warningElement) {
+            warningElement.textContent = error.message || `Failed to copy operations from job ${trimmedJobNumber}.`;
+            warningElement.style.color = "#ef4444";
+            setTimeout(() => {
+              warningElement.textContent = '';
+              warningElement.style.color = '';
+            }, 3000);
+          }
         }
       }
 
@@ -1375,7 +1394,10 @@
       const copyOpsCancelBtn = document.getElementById("copyOpsCancelBtn");
 
       if (copyOpsBtn && copyOpsModal && copyOpsJobInput && copyOpsConfirmBtn && copyOpsCancelBtn) {
+        // Open modal in Single Job mode
         copyOpsBtn.addEventListener("click", async () => {
+          currentCopyOpsTarget = 'single';
+
           // Load job numbers into dropdown the first time
           await ensureJobOpsMasterJobNumbersLoaded();
 
@@ -1385,25 +1407,40 @@
           copyOpsJobInput.focus();
         });
 
+        // Shared confirm handler for both single and multiple job modes
         copyOpsConfirmBtn.addEventListener("click", async () => {
           const sourceJobNumber = copyOpsJobInput.value;
           if (!sourceJobNumber || !sourceJobNumber.trim()) {
-            addOpsWarning.textContent = "Please enter or select a job number.";
-            addOpsWarning.style.color = "#ef4444";
-            setTimeout(() => {
-              addOpsWarning.textContent = '';
-              addOpsWarning.style.color = '';
-            }, 3000);
+            const warningElement = currentCopyOpsTarget === 'multiple'
+              ? multipleJobsAddOpsWarning
+              : addOpsWarning;
+            if (warningElement) {
+              warningElement.textContent = "Please enter or select a job number.";
+              warningElement.style.color = "#ef4444";
+              setTimeout(() => {
+                warningElement.textContent = '';
+                warningElement.style.color = '';
+              }, 3000);
+            }
             return;
           }
 
           const trimmedJobNumber = sourceJobNumber.trim();
           copyOpsModal.style.display = "none";
-          await copyOperationsFromJobNumber(trimmedJobNumber);
+
+          // Decide target table and warning element based on mode
+          if (currentCopyOpsTarget === 'multiple' && multipleJobsAddOpsBody) {
+            await copyOperationsFromJobNumber(trimmedJobNumber, multipleJobsAddOpsBody, multipleJobsAddOpsWarning);
+          } else if (opsBody) {
+            await copyOperationsFromJobNumber(trimmedJobNumber, opsBody, addOpsWarning);
+          }
+
+          currentCopyOpsTarget = null;
         });
 
         copyOpsCancelBtn.addEventListener("click", () => {
           copyOpsModal.style.display = "none";
+          currentCopyOpsTarget = null;
         });
       }
 
@@ -2371,85 +2408,19 @@
         });
       }
       
-      // Copy operations from existing job (Multiple Jobs Mode)
+      // Copy operations from existing job (Multiple Jobs Mode) - uses same modal
       const multipleJobsCopyOpsBtn = document.getElementById("multipleJobsCopyOpsBtn");
-      if (multipleJobsCopyOpsBtn && multipleJobsAddOpsBody) {
+      if (multipleJobsCopyOpsBtn && copyOpsModal && copyOpsJobInput) {
         multipleJobsCopyOpsBtn.addEventListener("click", async () => {
-          const sourceJobNumber = prompt("Enter the job number to copy operations from:");
-          
-          if (!sourceJobNumber || !sourceJobNumber.trim()) {
-            return; // User cancelled or didn't enter anything
-          }
-          
-          const trimmedJobNumber = sourceJobNumber.trim();
-          
-          try {
-            // Fetch operations from the source job
-            const response = await jobsAPI.getJobOpsMasterByJobNumber(trimmedJobNumber);
-            
-            if (!response || !response.ops || response.ops.length === 0) {
-              if (multipleJobsAddOpsWarning) {
-                multipleJobsAddOpsWarning.textContent = `No operations found for job ${trimmedJobNumber}.`;
-                multipleJobsAddOpsWarning.style.color = "#ef4444";
-                setTimeout(() => {
-                  multipleJobsAddOpsWarning.textContent = '';
-                  multipleJobsAddOpsWarning.style.color = '';
-                }, 3000);
-              }
-              return;
-            }
-            
-            // Clear existing rows in add ops section
-            if (multipleJobsAddOpsBody) {
-              multipleJobsAddOpsBody.innerHTML = '';
-              
-              // Add each operation from the source job
-              for (const op of response.ops) {
-                const operation = allOperations.find(o => String(o._id) === String(op.opId));
-                
-                if (operation) {
-                  const newRow = document.createElement('tr');
-                  newRow.classList.add('ops-row');
-                  newRow.innerHTML = `
-                    <td>
-                      <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" value="${operation.opsName}" />
-                    </td>
-                    <td>
-                      <input type="text" name="qtyBook" value="${op.qtyPerBook || ''}" />
-                    </td>
-                    <td>
-                      <input type="number" name="rate" value="1" readonly />
-                    </td>
-                    <td>
-                      <input type="number" name="rateBook" value="1" readonly />
-                    </td>
-                    <td>
-                      <button type="button" class="delete-row-btn" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px; font-size: 18px;" title="Delete row">×</button>
-                    </td>
-                  `;
-                  multipleJobsAddOpsBody.appendChild(newRow);
-                }
-              }
-              
-              if (multipleJobsAddOpsWarning) {
-                multipleJobsAddOpsWarning.textContent = `Copied ${response.ops.length} operation(s) from job ${trimmedJobNumber}.`;
-                multipleJobsAddOpsWarning.style.color = "#4ade80";
-                setTimeout(() => {
-                  multipleJobsAddOpsWarning.textContent = '';
-                  multipleJobsAddOpsWarning.style.color = '';
-                }, 3000);
-              }
-            }
-          } catch (error) {
-            if (multipleJobsAddOpsWarning) {
-              multipleJobsAddOpsWarning.textContent = error.message || `Failed to copy operations from job ${trimmedJobNumber}.`;
-              multipleJobsAddOpsWarning.style.color = "#ef4444";
-              setTimeout(() => {
-                multipleJobsAddOpsWarning.textContent = '';
-                multipleJobsAddOpsWarning.style.color = '';
-              }, 3000);
-            }
-          }
+          currentCopyOpsTarget = 'multiple';
+
+          // Load job numbers into dropdown the first time
+          await ensureJobOpsMasterJobNumbersLoaded();
+
+          // Open modal
+          copyOpsJobInput.value = "";
+          copyOpsModal.style.display = "flex";
+          copyOpsJobInput.focus();
         });
       }
 
