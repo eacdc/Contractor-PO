@@ -251,6 +251,70 @@
             <p class="inline-warning" id="addOpsWarning"></p>
           </div>
         </section>
+
+        <!-- Copy Ops Modal -->
+        <div
+          id="copyOpsModal"
+          style="
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 23, 42, 0.7);
+            z-index: 2000;
+            align-items: center;
+            justify-content: center;
+          "
+        >
+          <div
+            style="
+              background: #0f172a;
+              border-radius: 12px;
+              padding: 20px 24px;
+              width: 100%;
+              max-width: 420px;
+              box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+              border: 1px solid rgba(129, 140, 248, 0.6);
+            "
+          >
+            <h3 style="margin-top: 0; margin-bottom: 12px; font-size: 18px;">
+              Copy Operations from Existing Job
+            </h3>
+            <p style="margin-top: 0; margin-bottom: 10px; font-size: 14px; color: #e5e7eb;">
+              Select a job number from the dropdown or type it manually. Jobs are loaded from
+              <span style="font-weight: 600;">JobopsMaster</span>.
+            </p>
+            <div class="field" style="margin-bottom: 16px;">
+              <label for="copyOpsJobInput" style="display: block; margin-bottom: 4px;">
+                Enter the job number to copy operations from
+              </label>
+              <input
+                id="copyOpsJobInput"
+                type="text"
+                list="copyOpsJobList"
+                placeholder="Start typing or choose a job number..."
+                style="width: 100%;"
+                autocomplete="off"
+              />
+              <datalist id="copyOpsJobList"></datalist>
+            </div>
+            <div class="button-row" style="justify-content: flex-end; gap: 8px;">
+              <button
+                type="button"
+                class="secondary-btn"
+                id="copyOpsCancelBtn"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                class="primary-btn primary-btn--sm"
+                id="copyOpsConfirmBtn"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        </div>
       </main>
 
       <!-- Single datalist for all ops dropdowns -->
@@ -267,6 +331,7 @@
       import { jobsAPI, operationsAPI, seriesAPI } from './api.js';
 
       let currentJobId = null;
+      let jobOpsMasterJobNumbersLoaded = false;
       let allOperations = [];
       let hasSearchedJob = false; // Track if a job has been searched
       let isMultipleJobMode = false; // Track single/multiple job mode
@@ -1218,79 +1283,127 @@
         });
       }
 
-      // Copy operations from existing job (Single Job Mode)
-      const copyOpsBtn = document.getElementById("copyOpsBtn");
-      if (copyOpsBtn) {
-        copyOpsBtn.addEventListener("click", async () => {
-          const sourceJobNumber = prompt("Enter the job number to copy operations from:");
-          
-          if (!sourceJobNumber || !sourceJobNumber.trim()) {
-            return; // User cancelled or didn't enter anything
-          }
-          
-          const trimmedJobNumber = sourceJobNumber.trim();
-          
-          try {
-            // Fetch operations from the source job
-            const response = await jobsAPI.getJobOpsMasterByJobNumber(trimmedJobNumber);
-            
-            if (!response || !response.ops || response.ops.length === 0) {
-              addOpsWarning.textContent = `No operations found for job ${trimmedJobNumber}.`;
-              addOpsWarning.style.color = "#ef4444";
-              setTimeout(() => {
-                addOpsWarning.textContent = '';
-                addOpsWarning.style.color = '';
-              }, 3000);
-              return;
-            }
-            
-            // Clear existing rows in add ops section
-            if (opsBody) {
-              opsBody.innerHTML = '';
-              
-              // Add each operation from the source job
-              for (const op of response.ops) {
-                const operation = allOperations.find(o => String(o._id) === String(op.opId));
-                
-                if (operation) {
-                  const newRow = document.createElement('tr');
-                  newRow.classList.add('ops-row');
-                  newRow.innerHTML = `
-                    <td>
-                      <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" value="${operation.opsName}" />
-                    </td>
-                    <td>
-                      <input type="text" name="qtyBook" value="${op.qtyPerBook || ''}" />
-                    </td>
-                    <td>
-                      <input type="number" name="rate" value="1" readonly />
-                    </td>
-                    <td>
-                      <input type="number" name="rateBook" value="1" readonly />
-                    </td>
-                    <td>
-                      <button type="button" class="delete-row-btn" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px; font-size: 18px;" title="Delete row">×</button>
-                    </td>
-                  `;
-                  opsBody.appendChild(newRow);
-                }
-              }
-              
-              addOpsWarning.textContent = `Copied ${response.ops.length} operation(s) from job ${trimmedJobNumber}.`;
-              addOpsWarning.style.color = "#4ade80";
-              setTimeout(() => {
-                addOpsWarning.textContent = '';
-                addOpsWarning.style.color = '';
-              }, 3000);
-            }
-          } catch (error) {
-            addOpsWarning.textContent = error.message || `Failed to copy operations from job ${trimmedJobNumber}.`;
+      // Helper: load JobopsMaster job numbers into dropdown (once)
+      async function ensureJobOpsMasterJobNumbersLoaded() {
+        if (jobOpsMasterJobNumbersLoaded) return;
+        const datalist = document.getElementById('copyOpsJobList');
+        if (!datalist) return;
+
+        try {
+          const jobNumbers = await jobsAPI.getJobNumbers();
+          datalist.innerHTML = '';
+          (jobNumbers || []).forEach((jn) => {
+            const opt = document.createElement('option');
+            opt.value = jn;
+            datalist.appendChild(opt);
+          });
+          jobOpsMasterJobNumbersLoaded = true;
+        } catch (err) {
+          console.error('Error loading JobopsMaster job numbers', err);
+        }
+      }
+
+      // Core logic to copy operations from a given job number into the Add New Ops table
+      async function copyOperationsFromJobNumber(trimmedJobNumber) {
+        if (!trimmedJobNumber) return;
+
+        try {
+          const response = await jobsAPI.getJobOpsMasterByJobNumber(trimmedJobNumber);
+
+          if (!response || !response.ops || response.ops.length === 0) {
+            addOpsWarning.textContent = `No operations found for job ${trimmedJobNumber}.`;
             addOpsWarning.style.color = "#ef4444";
             setTimeout(() => {
               addOpsWarning.textContent = '';
               addOpsWarning.style.color = '';
             }, 3000);
+            return;
           }
+
+          if (opsBody) {
+            opsBody.innerHTML = '';
+
+            for (const op of response.ops) {
+              const operation = allOperations.find(o => String(o._id) === String(op.opId));
+
+              if (operation) {
+                const newRow = document.createElement('tr');
+                newRow.classList.add('ops-row');
+                newRow.innerHTML = `
+                  <td>
+                    <input type="text" name="opsName" class="ops-input" list="opsList" placeholder="Type or select ops" autocomplete="off" value="${operation.opsName}" />
+                  </td>
+                  <td>
+                    <input type="text" name="qtyBook" value="${op.qtyPerBook || ''}" />
+                  </td>
+                  <td>
+                    <input type="number" name="rate" value="1" readonly />
+                  </td>
+                  <td>
+                    <input type="number" name="rateBook" value="1" readonly />
+                  </td>
+                  <td>
+                    <button type="button" class="delete-row-btn" style="background: none; border: none; color: #ef4444; cursor: pointer; padding: 4px 8px; font-size: 18px;" title="Delete row">×</button>
+                  </td>
+                `;
+                opsBody.appendChild(newRow);
+              }
+            }
+
+            addOpsWarning.textContent = `Copied ${response.ops.length} operation(s) from job ${trimmedJobNumber}.`;
+            addOpsWarning.style.color = "#4ade80";
+            setTimeout(() => {
+              addOpsWarning.textContent = '';
+              addOpsWarning.style.color = '';
+            }, 3000);
+          }
+        } catch (error) {
+          addOpsWarning.textContent = error.message || `Failed to copy operations from job ${trimmedJobNumber}.`;
+          addOpsWarning.style.color = "#ef4444";
+          setTimeout(() => {
+            addOpsWarning.textContent = '';
+            addOpsWarning.style.color = '';
+          }, 3000);
+        }
+      }
+
+      // Copy operations from existing job (Single Job Mode) with dropdown-backed input
+      const copyOpsBtn = document.getElementById("copyOpsBtn");
+      const copyOpsModal = document.getElementById("copyOpsModal");
+      const copyOpsJobInput = document.getElementById("copyOpsJobInput");
+      const copyOpsConfirmBtn = document.getElementById("copyOpsConfirmBtn");
+      const copyOpsCancelBtn = document.getElementById("copyOpsCancelBtn");
+
+      if (copyOpsBtn && copyOpsModal && copyOpsJobInput && copyOpsConfirmBtn && copyOpsCancelBtn) {
+        copyOpsBtn.addEventListener("click", async () => {
+          // Load job numbers into dropdown the first time
+          await ensureJobOpsMasterJobNumbersLoaded();
+
+          // Open modal
+          copyOpsJobInput.value = "";
+          copyOpsModal.style.display = "flex";
+          copyOpsJobInput.focus();
+        });
+
+        copyOpsConfirmBtn.addEventListener("click", async () => {
+          const sourceJobNumber = copyOpsJobInput.value;
+          if (!sourceJobNumber || !sourceJobNumber.trim()) {
+            addOpsWarning.textContent = "Please enter or select a job number.";
+            addOpsWarning.style.color = "#ef4444";
+            setTimeout(() => {
+              addOpsWarning.textContent = '';
+              addOpsWarning.style.color = '';
+            }, 3000);
+            return;
+          }
+
+          const trimmedJobNumber = sourceJobNumber.trim();
+          copyOpsModal.style.display = "none";
+          await copyOperationsFromJobNumber(trimmedJobNumber);
+        });
+
+        copyOpsCancelBtn.addEventListener("click", () => {
+          copyOpsModal.style.display = "none";
         });
       }
 
