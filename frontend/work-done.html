@@ -120,7 +120,7 @@
                     <th>Rate / Book</th>
                     <th>Qty Completed</th>
                     <th>Total Value</th>
-                    <th style="width: 60px;">Action</th>
+                    <th>Action</th>
                   </tr>
                 </thead>
                 <tbody id="billTableBody">
@@ -1379,7 +1379,7 @@
           
           let totalValueSum = 0;
           
-          billData.forEach(item => {
+          billData.forEach((item, index) => {
             // Skip items without opsName (legacy data)
             if (!item.opsName || !item.opsName.trim()) {
               console.warn('Skipping item without opsName:', item);
@@ -1389,6 +1389,7 @@
             totalValueSum += item.totalValue;
             
             const row = document.createElement("tr");
+            row.setAttribute('data-bill-index', index);
             row.innerHTML = `
               <td>${item.jobNumber}</td>
               <td>${item.opsName}</td>
@@ -1396,6 +1397,11 @@
               <td>${(item.valuePerBook || 0).toFixed(4)}</td>
               <td>${item.qtyCompleted}</td>
               <td>${item.totalValue.toFixed(2)}</td>
+              <td>
+                <button class="secondary-btn primary-btn--sm" type="button" data-delete-index="${index}" style="background-color: #ef4444; color: white; border: 1px solid #dc2626; padding: 7px 16px; cursor: pointer;">
+                  Delete
+                </button>
+              </td>
             `;
             billTableBody.appendChild(row);
           });
@@ -1404,7 +1410,7 @@
           if (billTableFooter) {
             billTableFooter.innerHTML = `
               <tr>
-                <td colspan="5" style="text-align: right; font-weight: bold;">Total:</td>
+                <td colspan="6" style="text-align: right; font-weight: bold;">Total:</td>
                 <td style="font-weight: bold;">${totalValueSum.toFixed(2)}</td>
               </tr>
             `;
@@ -1413,6 +1419,113 @@
         
         // Update "Pull in Series" checkbox state after refreshing bill table
         updatePullInSeriesCheckboxState();
+      }
+
+      // Function to delete a bill row and adjust pending quantities
+      function deleteBillRow(index) {
+        if (index < 0 || index >= billData.length) {
+          console.error('Invalid index for delete:', index);
+          return;
+        }
+
+        const item = billData[index];
+        if (!item) {
+          console.error('Item not found at index:', index);
+          return;
+        }
+
+        const jobNumber = item.jobNumber;
+        const opId = item.opId;
+        const qtyCompleted = item.qtyCompleted;
+
+        // Remove from billData
+        billData.splice(index, 1);
+
+        // Adjust pending quantity cache
+        if (pendingQtyCache[jobNumber] && pendingQtyCache[jobNumber][opId]) {
+          pendingQtyCache[jobNumber][opId] = Math.max(0, pendingQtyCache[jobNumber][opId] - qtyCompleted);
+          
+          // If cache becomes 0, we can remove it (optional cleanup)
+          if (pendingQtyCache[jobNumber][opId] === 0) {
+            delete pendingQtyCache[jobNumber][opId];
+          }
+        }
+
+        // Update pending quantity display in operations table
+        // For single job mode
+        if (!isSeriesMode && currentJobNumber === jobNumber) {
+          const opsRows = opsPendingBody?.querySelectorAll('tr');
+          if (opsRows) {
+            opsRows.forEach(row => {
+              const input = row.querySelector(`.work-qty-input[data-op-id="${opId}"]`);
+              if (input) {
+                const pendingCell = row.querySelector('.pending-cell');
+                if (pendingCell) {
+                  // Get original pending qty from the operation data
+                  const op = currentOperationsData.find(o => o.opId === opId);
+                  if (op) {
+                    const cachedReduction = pendingQtyCache[jobNumber]?.[opId] || 0;
+                    const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
+                    pendingCell.textContent = adjustedPendingQty;
+                    input.max = adjustedPendingQty;
+                  }
+                }
+              }
+            });
+          }
+        } else if (isSeriesMode) {
+          // For series mode - update the specific job row
+          const jobRow = document.querySelector(`[data-job-number="${jobNumber}"]`);
+          if (jobRow) {
+            const opsBody = jobRow.querySelector(`tbody#ops-body-${jobNumber}`);
+            if (opsBody) {
+              const opsRows = opsBody.querySelectorAll('tr');
+              opsRows.forEach(row => {
+                const input = row.querySelector(`.work-qty-input[data-op-id="${opId}"][data-job="${jobNumber}"]`);
+                if (input) {
+                  const pendingCell = row.querySelector('.pending-cell');
+                  if (pendingCell) {
+                    // Find the operation in seriesJobs
+                    const jobData = seriesJobs.find(j => j.jobNumber === jobNumber);
+                    if (jobData) {
+                      const op = jobData.operations.find(o => o.opId === opId);
+                      if (op) {
+                        const cachedReduction = pendingQtyCache[jobNumber]?.[opId] || 0;
+                        const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
+                        pendingCell.textContent = adjustedPendingQty;
+                        input.max = adjustedPendingQty;
+                      }
+                    }
+                  }
+                }
+              });
+            }
+          }
+        }
+
+        // Refresh bill table
+        refreshBillTable();
+
+        // Update "Pull in Series" checkbox state
+        updatePullInSeriesCheckboxState();
+
+        // If billData is empty, disable Save Bill button
+        if (billData.length === 0) {
+          if (saveBtn) {
+            saveBtn.disabled = true;
+            saveBtn.style.display = "none";
+          }
+        }
+      }
+
+      // Event delegation for delete buttons
+      if (billTableBody) {
+        billTableBody.addEventListener('click', (e) => {
+          if (e.target.hasAttribute('data-delete-index')) {
+            const index = parseInt(e.target.getAttribute('data-delete-index'));
+            deleteBillRow(index);
+          }
+        });
       }
 
       // Function to clear all data with confirmation
