@@ -729,6 +729,35 @@ router.get('/jobopsmaster/jobnumbers', async (req, res) => {
 
 
 
+// Get a single JobopsMaster document by job number (used for copy-ops in UI)
+// Uses query parameter to safely handle job numbers with special characters like '/'
+router.get('/jobopsmaster/by-job-number', async (req, res) => {
+  try {
+    const { jobNumber } = req.query;
+
+    if (!jobNumber) {
+      return res.status(400).json({ error: 'Job number is required' });
+    }
+
+    const jobOpsMaster = await JobopsMaster.findOne({ jobId: jobNumber }).lean();
+
+    if (!jobOpsMaster) {
+      return res.status(404).json({ error: 'Job not found in JobopsMaster' });
+    }
+
+    // Return only the fields the frontend needs for copying (ops array + jobId)
+    res.json({
+      jobId: jobOpsMaster.jobId,
+      ops: jobOpsMaster.ops || [],
+    });
+  } catch (error) {
+    console.error('Error fetching JobopsMaster by job number:', error);
+    res.status(500).json({ error: 'Error fetching JobopsMaster by job number' });
+  }
+});
+
+
+
 // Search job numbers from MSSQL (when 4+ digits entered)
 
 router.get('/search-numbers/:jobNumberPart', async (req, res) => {
