@@ -188,18 +188,18 @@
           return y + rowHeight;
         }
         
-        // Function to draw table row with text wrapping for Client Name and Job Title
+        // Function to draw table row with text wrapping for Client Name, Job Title, and Operation
         function drawTableRow(y, values, isAlt) {
           doc.setFont(undefined, 'normal');
           doc.setFontSize(9);
           
-          // Wrap text for Client Name (index 1) and Job Title (index 2)
+          // Wrap text for Client Name (index 1), Job Title (index 2), and Operation (index 3)
           // Calculate available width for wrapping (column width minus padding)
           const padding = 6; // 3mm on each side
           const wrappedTexts = values.map((val, i) => {
             const text = String(val || '');
-            // Only wrap Client Name (index 1) and Job Title (index 2)
-            if (i === 1 || i === 2) {
+            // Only wrap Client Name (index 1), Job Title (index 2), and Operation (index 3)
+            if (i === 1 || i === 2 || i === 3) {
               const availableWidth = colWidths[i] - padding;
               // Split text into multiple lines that fit within the column width
               const lines = doc.splitTextToSize(text, availableWidth);
