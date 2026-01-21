@@ -143,12 +143,23 @@ export const billsAPI = {
     method: 'PUT',
     body: { contractorName, jobs }
   }),
-  markAsPaid: (billNumber) => apiCall(`/bills/${billNumber}/pay`, {
-    method: 'PATCH'
+  checkRoomRent: (contractorName) => apiCall(`/bills/check-roomrent/${encodeURIComponent(contractorName)}`),
+  markAsPaid: (billNumber, roomRent) => apiCall(`/bills/${billNumber}/pay`, {
+    method: 'PATCH',
+    body: roomRent !== undefined ? { roomRent } : {}
   }),
   delete: (billNumber) => apiCall(`/bills/${billNumber}`, {
     method: 'DELETE'
   })
+};
+
+// Bill editing API (qtyCompleted only)
+export const billEditAPI = {
+  editQuantities: (billNumber, contractorId, changes) =>
+    apiCall(`/bills/${encodeURIComponent(billNumber)}/edit-qty`, {
+      method: 'PUT',
+      body: { contractorId, changes }
+    })
 };
 
 // Series API

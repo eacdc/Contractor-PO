@@ -1417,6 +1417,15 @@
           }
         }
         
+        // Freeze/unfreeze contractor name field based on bill data
+        if (contractorSelect) {
+          if (billData.length > 0) {
+            contractorSelect.disabled = true;
+          } else {
+            contractorSelect.disabled = false;
+          }
+        }
+        
         // Update "Pull in Series" checkbox state after refreshing bill table
         updatePullInSeriesCheckboxState();
       }
@@ -1509,11 +1518,14 @@
         // Update "Pull in Series" checkbox state
         updatePullInSeriesCheckboxState();
 
-        // If billData is empty, disable Save Bill button
+        // If billData is empty, disable Save Bill button and unfreeze contractor name
         if (billData.length === 0) {
           if (saveBtn) {
             saveBtn.disabled = true;
             saveBtn.style.display = "none";
+          }
+          if (contractorSelect) {
+            contractorSelect.disabled = false;
           }
         }
       }
@@ -1560,6 +1572,11 @@
         hasUnsavedBillData = false;
         pendingQtyCache = {}; // Clear pending qty cache
         jobDetailsMap = {}; // Clear job details map
+        
+        // Unfreeze contractor name field since bill data is cleared
+        if (contractorSelect) {
+          contractorSelect.disabled = false;
+        }
         
         opsPendingPanel.classList.add("panel-collapsed");
         billTablePanel.classList.add("panel-collapsed");
@@ -1675,6 +1692,11 @@
           hasUnsavedBillData = false;
           pendingQtyCache = {}; // Clear pending qty cache
           jobDetailsMap = {}; // Clear job details map
+          
+          // Unfreeze contractor name field since bill data is cleared
+          if (contractorSelect) {
+            contractorSelect.disabled = false;
+          }
           
           // Reset all checkboxes
           resetAllCheckboxes();
