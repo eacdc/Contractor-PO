@@ -91,14 +91,18 @@ export const operationsAPI = {
     const query = search ? `?search=${encodeURIComponent(search)}` : '';
     return apiCall(`/operations${query}`);
   },
+  getByCategory: (category) => {
+    if (!category || !String(category).trim()) return Promise.resolve([]);
+    return apiCall(`/operations?category=${encodeURIComponent(String(category).trim())}`);
+  },
   getById: (id) => apiCall(`/operations/${id}`),
-  create: (opsName, type, ratePerUnit) => apiCall('/operations', {
+  create: (opsName, type, ratePerUnit, category) => apiCall('/operations', {
     method: 'POST',
-    body: { opsName, type, ratePerUnit }
+    body: { opsName, type, ratePerUnit, category }
   }),
-  update: (id, opsName, type, ratePerUnit) => apiCall(`/operations/${id}`, {
+  update: (id, opsName, type, ratePerUnit, category) => apiCall(`/operations/${id}`, {
     method: 'PUT',
-    body: { opsName, type, ratePerUnit }
+    body: { opsName, type, ratePerUnit, category }
   }),
   delete: (id) => apiCall(`/operations/${id}`, {
     method: 'DELETE'

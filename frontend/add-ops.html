@@ -643,6 +643,59 @@
         }
       }
 
+      // Populate Add New Ops section with operations whose category matches job Product Cat (1:1 type only)
+      async function populateAddNewOpsFromCategory() {
+        const productCatInput = document.getElementById('productCat');
+        const addOpsBodyEl = document.getElementById('addOpsBody');
+        if (!productCatInput || !addOpsBodyEl) return;
+        const productCat = (productCatInput.value || '').trim();
+        if (!productCat) return;
+        try {
+          const byCategory = await operationsAPI.getByCategory(productCat);
+          const oneToOneOps = (byCategory || []).filter(op => op.type === '1:1');
+          // Skip ops already in previous ops for this job
+          const toAdd = oneToOneOps.filter(op => !existingOperationIds.has(String(op._id)));
+          if (toAdd.length === 0) return;
+
+          const rows = addOpsBodyEl.querySelectorAll('.ops-row');
+          const templateRow = rows[0];
+          if (!templateRow) return;
+
+          addOpsBodyEl.innerHTML = '';
+          toAdd.forEach((op, index) => {
+            const clone = templateRow.cloneNode(true);
+            const opsInput = clone.querySelector('input[name="opsName"]');
+            const qtyInput = clone.querySelector('input[name="qtyBook"]');
+            const rateInput = clone.querySelector('input[name="rate"]');
+            const rateBookInput = clone.querySelector('input[name="rateBook"]');
+            if (opsInput) opsInput.value = op.opsName || '';
+            if (qtyInput) { qtyInput.value = '1'; qtyInput.readOnly = true; }
+            if (rateInput) { rateInput.value = Number(op.ratePerUnit || 0).toFixed(4); rateInput.readOnly = true; }
+            if (rateBookInput) {
+              const ratePerUnit = Number(op.ratePerUnit || 0);
+              rateBookInput.value = (1 * ratePerUnit).toFixed(4);
+              rateBookInput.readOnly = true;
+            }
+            addOpsBodyEl.appendChild(clone);
+          });
+          // Add one empty row at the end
+          const emptyRow = templateRow.cloneNode(true);
+          const eOps = emptyRow.querySelector('input[name="opsName"]');
+          const eQty = emptyRow.querySelector('input[name="qtyBook"]');
+          const eRate = emptyRow.querySelector('input[name="rate"]');
+          const eRateBook = emptyRow.querySelector('input[name="rateBook"]');
+          if (eOps) eOps.value = '';
+          if (eQty) { eQty.value = ''; eQty.readOnly = false; }
+          if (eRate) { eRate.value = '1'; eRate.readOnly = true; }
+          if (eRateBook) { eRateBook.value = '1'; eRateBook.readOnly = true; }
+          addOpsBodyEl.appendChild(emptyRow);
+
+          updateAddButtonVisibility();
+        } catch (err) {
+          console.error('Error populating ops from category:', err);
+        }
+      }
+
       // Job search
       const jobSearchForm = document.getElementById('jobSearchForm');
       const jobSearchError = document.getElementById('jobSearchError');
@@ -774,10 +827,20 @@
 
           const previousOps = result.previousOps;
 
+          // Track which operation IDs are already in this job (from previous ops)
+          existingOperationIds.clear();
+          if (previousOps && Array.isArray(previousOps.operations)) {
+            previousOps.operations.forEach(op => {
+              if (op.opsId) existingOperationIds.add(String(op.opsId));
+            });
+          }
+
           // Refresh all dropdowns (show all operations)
           refreshAllDropdowns();
           // Update visibility of Add button and section
           updateAddButtonVisibility();
+          // If job has Product Cat, auto-populate Add New Ops with matching 1:1 operations
+          await populateAddNewOpsFromCategory();
 
           if (
             previousOps &&
@@ -934,6 +997,8 @@
           refreshAllDropdowns();
           // Update visibility of Add button and section
           updateAddButtonVisibility();
+          // Auto-populate Add New Ops from Product Cat if available
+          await populateAddNewOpsFromCategory();
 
           // Do not show "job not found" error in this case
           jobSearchError.textContent = '';

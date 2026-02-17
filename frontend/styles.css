@@ -600,10 +600,19 @@ body {
 }
 
 .add-ops-inline {
-  display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
   gap: 12px 14px;
   align-items: flex-end;
+}
+.add-ops-inline .field {
+  min-width: 120px;
+}
+.add-ops-inline .field:first-child {
+  flex: 1 1 200px;
+}
+.add-ops-inline #newOpsCategory {
+  min-width: 180px;
 }
 
 .add-ops-actions {
