@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contractor PO System - Print Job</title>
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      /* Page: 80vw width, centered; fixed viewport layout, no page scroll */
+      .print-job-page .app {
+        width: 80vw;
+        max-width: 80vw;
+        margin-left: auto;
+        margin-right: auto;
+        height: 100vh;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .print-job-page .app-main {
+        flex: 1;
+        min-height: 0;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      /* Top section: header + intro + search — fits within 30% of screen height */
+      .print-job-top {
+        flex: 0 0 auto;
+        max-height: 30vh;
+        overflow-y: auto;
+      }
+      /* Results panel: takes remaining 70% of screen; table scrolls inside */
+      .print-job-page #resultsPanel {
+        flex: 1;
+        min-height: 70vh;
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+      }
+      .print-job-page #resultsPanel .panel-body {
+        flex: 1;
+        min-height: 0;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .print-job-filters { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 12px; margin-bottom: 16px; }
+      .print-job-filters .field { margin-bottom: 0; }
+      .filter-row th { padding: 6px 8px; vertical-align: middle; }
+      .filter-row input[type="text"],
+      .filter-row input[type="date"] { width: 100%; min-width: 0; padding: 4px 8px; font-size: 0.85rem; }
+      .filter-row input[type="date"] { min-width: 110px; }
+      /* Table container: fills remaining space, vertical scroll only */
+      .print-job-table-wrapper {
+        width: 100%;
+        flex: 1;
+        min-height: 0;
+        overflow-x: hidden;
+        overflow-y: auto;
+      }
+      .print-job-table-wrapper .data-table {
+        table-layout: fixed;
+        width: 100%;
+      }
+      .print-job-table-wrapper .data-table th,
+      .print-job-table-wrapper .data-table td {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        word-wrap: break-word;
+      }
+    </style>
+  </head>
+  <body class="print-job-page">
+    <script>
+      (function() {
+        try {
+          var userJson = localStorage.getItem('user');
+          if (userJson) {
+            var user = JSON.parse(userJson);
+            if (user && user.type === 'contractor') {
+              window.location.replace('add-ops.html');
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <div class="app">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-logo">CP</div>
+          <div class="brand-text">
+            <h1>Contractor PO System</h1>
+            <p>Print job – view bills and operations by job number.</p>
+          </div>
+        </div>
+        <a href="home.html" class="home-btn">Home</a>
+      </header>
+
+      <main class="app-main app-main--home">
+        <div class="print-job-top">
+          <section class="intro">
+            <h2>Print Job</h2>
+            <p>Select a job number and search to view all bills and operations for that job.</p>
+          </section>
+
+          <section class="panel">
+            <div class="print-job-filters">
+            <div class="field">
+              <label for="jobNumberInput">Job Number</label>
+              <input
+                type="text"
+                id="jobNumberInput"
+                list="jobNumberList"
+                placeholder="Type or select job number..."
+                autocomplete="off"
+              />
+              <datalist id="jobNumberList"></datalist>
+            </div>
+            <button type="button" class="primary-btn primary-btn--sm" id="searchBtn">Search</button>
+          </div>
+          <p class="inline-warning" id="printJobWarning"></p>
+          </section>
+        </div>
+
+        <section class="panel" id="resultsPanel" style="display: none;">
+          <header class="panel-header">
+            <h3 id="resultsTitle">Bills for job</h3>
+          </header>
+          <div class="panel-body">
+            <div class="table-wrapper print-job-table-wrapper">
+              <table class="data-table" id="printJobTable">
+                <thead>
+                  <tr id="printJobHeaderRow">
+                    <!-- Filled by JS -->
+                  </tr>
+                  <tr class="filter-row" id="printJobFilterRow">
+                    <!-- Filter inputs filled by JS -->
+                  </tr>
+                </thead>
+                <tbody id="printJobBody">
+                  <!-- Rows filled by JS -->
+                </tbody>
+              </table>
+            </div>
+            <p class="inline-info" id="printJobInfo"></p>
+          </div>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <span>Contractor PO System</span>
+        <span class="divider">•</span>
+        <span>Print Job</span>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { jobsAPI, billsAPI } from './api.js';
+
+      const jobNumberInput = document.getElementById('jobNumberInput');
+      const jobNumberList = document.getElementById('jobNumberList');
+      const searchBtn = document.getElementById('searchBtn');
+      const warningEl = document.getElementById('printJobWarning');
+      const resultsPanel = document.getElementById('resultsPanel');
+      const resultsTitle = document.getElementById('resultsTitle');
+      const headerRow = document.getElementById('printJobHeaderRow');
+      const filterRow = document.getElementById('printJobFilterRow');
+      const tableBody = document.getElementById('printJobBody');
+      const tableInfo = document.getElementById('printJobInfo');
+
+      const COLUMNS = [
+        { key: 'billNumber', label: 'Bill Number', type: 'text' },
+        { key: 'contractorName', label: 'Contractor Name', type: 'text' },
+        { key: 'paymentStatus', label: 'Payment Status', type: 'text' },
+        { key: 'paymentDate', label: 'Payment Date', type: 'date' },
+        { key: 'jobNumber', label: 'Job Number', type: 'text' },
+        { key: 'clientName', label: 'Client Name', type: 'text' },
+        { key: 'jobTitle', label: 'Job Title', type: 'text' },
+        { key: 'opsName', label: 'Ops Name', type: 'text' },
+        { key: 'qtyBook', label: 'Qty / Book', type: 'text' },
+        { key: 'rate', label: 'Rate', type: 'text' },
+        { key: 'qtyCompleted', label: 'Qty Completed', type: 'text' },
+        { key: 'totalValue', label: 'Total Value', type: 'text' }
+      ];
+
+      function formatDate(dateVal) {
+        if (dateVal == null) return '-';
+        const d = dateVal instanceof Date ? dateVal : new Date(dateVal);
+        if (Number.isNaN(d.getTime())) return '-';
+        return d.toLocaleDateString();
+      }
+
+      function flattenBillsForJob(bills, searchJobNumber) {
+        const searchJob = String(searchJobNumber || '').trim();
+        const rows = [];
+        for (const bill of bills) {
+          const paymentDate = bill.paymentDate ? new Date(bill.paymentDate) : null;
+          const paymentDateStr = formatDate(paymentDate);
+          for (const job of bill.jobs || []) {
+            if (String(job.jobNumber || '').trim() !== searchJob) continue;
+            for (const op of job.ops || []) {
+              rows.push({
+                billNumber: bill.billNumber || '-',
+                contractorName: bill.contractorName || '-',
+                paymentStatus: bill.paymentStatus || 'No',
+                paymentDate: paymentDateStr,
+                paymentDateRaw: paymentDate,
+                jobNumber: job.jobNumber || '-',
+                clientName: job.clientName || '-',
+                jobTitle: job.jobTitle || '-',
+                opsName: op.opsName || '-',
+                qtyBook: op.qtyBook != null ? Number(op.qtyBook) : '-',
+                rate: op.rate != null ? Number(op.rate) : '-',
+                qtyCompleted: op.qtyCompleted != null ? Number(op.qtyCompleted) : '-',
+                totalValue: op.totalValue != null ? Number(op.totalValue) : '-'
+              });
+            }
+          }
+        }
+        return rows.sort((a, b) => {
+          const c = (a.billNumber || '').localeCompare(b.billNumber || '');
+          if (c !== 0) return c;
+          return (a.contractorName || '').localeCompare(b.contractorName || '');
+        });
+      }
+
+      let allRows = [];
+      let currentJobNumber = '';
+
+      function buildTable() {
+        headerRow.innerHTML = COLUMNS.map(c => `<th>${c.label}</th>`).join('');
+        filterRow.innerHTML = COLUMNS.map((c, i) => {
+          const id = `filter_${c.key}`;
+          if (c.type === 'date') {
+            return `<th><div style="display:flex;gap:4px;"><input type="date" id="${id}_from" placeholder="From" title="From date" /><input type="date" id="${id}_to" placeholder="To" title="To date" /></div></th>`;
+          }
+          return `<th><input type="text" id="${id}" placeholder="Filter..." title="Filter ${c.label}" /></th>`;
+        }).join('');
+
+        COLUMNS.forEach((c, i) => {
+          const id = c.type === 'date' ? `filter_${c.key}_from` : `filter_${c.key}`;
+          const el = document.getElementById(id);
+          if (el) el.addEventListener('input', applyFilters);
+          if (c.type === 'date') {
+            const toEl = document.getElementById(`filter_${c.key}_to`);
+            if (toEl) toEl.addEventListener('input', applyFilters);
+          }
+        });
+      }
+
+      function getFilterValues() {
+        const v = {};
+        COLUMNS.forEach(c => {
+          if (c.type === 'date') {
+            const fromEl = document.getElementById(`filter_${c.key}_from`);
+            const toEl = document.getElementById(`filter_${c.key}_to`);
+            v[`${c.key}_from`] = fromEl && fromEl.value ? fromEl.value.trim() : '';
+            v[`${c.key}_to`] = toEl && toEl.value ? toEl.value.trim() : '';
+          } else {
+            const el = document.getElementById(`filter_${c.key}`);
+            v[c.key] = el && el.value ? el.value.trim().toLowerCase() : '';
+          }
+        });
+        return v;
+      }
+
+      function applyFilters() {
+        const filters = getFilterValues();
+        const filtered = allRows.filter(row => {
+          for (const c of COLUMNS) {
+            if (c.type === 'date') {
+              const from = filters[`${c.key}_from`];
+              const to = filters[`${c.key}_to`];
+              const raw = row.paymentDateRaw;
+              if (!raw && (from || to)) return false;
+              if (from) {
+                const fromDate = new Date(from);
+                fromDate.setHours(0, 0, 0, 0);
+                if (raw < fromDate) return false;
+              }
+              if (to) {
+                const toDate = new Date(to);
+                toDate.setHours(23, 59, 59, 999);
+                if (raw > toDate) return false;
+              }
+            } else {
+              const f = filters[c.key];
+              if (!f) continue;
+              const val = row[c.key];
+              const str = val != null ? String(val).toLowerCase() : '';
+              if (!str.includes(f)) return false;
+            }
+          }
+          return true;
+        });
+        renderRows(filtered);
+        tableInfo.textContent = `Showing ${filtered.length} of ${allRows.length} row(s).`;
+      }
+
+      function renderRows(rows) {
+        tableBody.innerHTML = rows.map(row => {
+          return '<tr>' + COLUMNS.map(c => {
+            const val = row[c.key];
+            const display = val == null || val === '' ? '-' : (typeof val === 'number' ? (Number.isInteger(val) ? val : val.toFixed(2)) : String(val));
+            return `<td>${escapeHtml(display)}</td>`;
+          }).join('') + '</tr>';
+        }).join('');
+      }
+
+      function escapeHtml(s) {
+        const div = document.createElement('div');
+        div.textContent = s;
+        return div.innerHTML;
+      }
+
+      function loadJobNumbers() {
+        jobsAPI.getJobNumbers()
+          .then(jobNumbers => {
+            jobNumberList.innerHTML = '';
+            (jobNumbers || []).forEach(jn => {
+              const opt = document.createElement('option');
+              opt.value = jn;
+              jobNumberList.appendChild(opt);
+            });
+          })
+          .catch(() => {});
+      }
+
+      searchBtn.addEventListener('click', async () => {
+        const jobNumber = jobNumberInput.value.trim();
+        if (!jobNumber) {
+          warningEl.textContent = 'Please enter or select a job number.';
+          resultsPanel.style.display = 'none';
+          return;
+        }
+        warningEl.textContent = '';
+        try {
+          const bills = await billsAPI.getByJobNumber(jobNumber);
+          currentJobNumber = jobNumber;
+          allRows = flattenBillsForJob(bills || [], jobNumber);
+          resultsTitle.textContent = `Bills for job: ${escapeHtml(jobNumber)}`;
+          resultsPanel.style.display = 'flex';
+          buildTable();
+          applyFilters();
+        } catch (err) {
+          warningEl.textContent = err.message || 'Failed to load bills for this job.';
+          resultsPanel.style.display = 'none';
+        }
+      });
+
+      jobNumberInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          searchBtn.click();
+        }
+      });
+
+      loadJobNumbers();
+    </script>
+  </body>
+</html>

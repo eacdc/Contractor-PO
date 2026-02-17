@@ -7,6 +7,20 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <script>
+      (function() {
+        try {
+          const userJson = localStorage.getItem('user');
+          if (userJson) {
+            const user = JSON.parse(userJson);
+            if (user && user.type === 'contractor') {
+              window.location.replace('add-ops.html');
+              return;
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
     <div class="app">
       <header class="app-header">
         <div class="brand">
@@ -19,6 +33,7 @@
         <div class="header-actions">
           <button class="header-btn" type="button">Activity Last Week</button>
           <button class="header-btn" type="button">Summary</button>
+          <a href="#" class="home-btn" id="logoutBtn" style="margin-left: 8px;">Logout</a>
         </div>
       </header>
 
@@ -54,10 +69,10 @@
             <p>Generate and print contractor billing summaries.</p>
           </a>
 
-          <button class="card" type="button">
+          <a class="card card-link" href="print-job.html">
             <h3>Print Job</h3>
-            <p>Print detailed job information and operations.</p>
-          </button>
+            <p>View bills and operations by job number with filters.</p>
+          </a>
         </section>
       </main>
 
@@ -67,6 +82,16 @@
         <span>Home</span>
       </footer>
     </div>
+    <script>
+      document.getElementById('logoutBtn').addEventListener('click', function(e) {
+        e.preventDefault();
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        var base = window.location.href.split('#')[0].split('?')[0];
+        base = base.substring(0, base.lastIndexOf('/') + 1);
+        window.location.replace(base + 'index.html');
+      });
+    </script>
   </body>
 </html>
 

@@ -7,6 +7,19 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <script>
+      (function() {
+        try {
+          var userJson = localStorage.getItem('user');
+          if (userJson) {
+            var user = JSON.parse(userJson);
+            if (user && user.type === 'contractor') {
+              window.location.replace('add-ops.html');
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
     <div class="app">
       <header class="app-header">
         <div class="brand">
@@ -65,18 +78,27 @@
                   <tr>
                     <th>Contractor Name</th>
                     <th>Creation Date</th>
+                    <th class="password-column-header" style="display: none;">
+                      Password
+                      <button type="button" class="hide-passwords-btn" title="Hide passwords" style="margin-left: 6px; font-size: 11px; padding: 2px 6px;">Hide</button>
+                    </th>
                     <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody id="contractorsTableBody">
                   <tr>
-                    <td colspan="3" style="text-align: center; color: var(--text-muted);">
+                    <td colspan="4" style="text-align: center; color: var(--text-muted);">
                       Loading contractors...
                     </td>
                   </tr>
                 </tbody>
               </table>
             </div>
+            <p style="margin-top: 8px;">
+              <button type="button" id="showPasswordsBtn" class="secondary-btn primary-btn--sm">
+                Show passwords
+              </button>
+            </p>
           </div>
         </section>
       </main>
@@ -117,7 +139,7 @@
           if (contractors.length === 0) {
             contractorsTableBody.innerHTML = `
               <tr>
-                <td colspan="3" style="text-align: center; color: var(--text-muted);">
+                <td colspan="4" style="text-align: center; color: var(--text-muted);">
                   No contractors found. Add your first contractor above.
                 </td>
               </tr>
@@ -125,19 +147,24 @@
             return;
           }
 
-          contractorsTableBody.innerHTML = contractors.map(contractor => `
+          const passwordColVisible = document.querySelector('.password-column-header')?.style.display !== 'none';
+          contractorsTableBody.innerHTML = contractors.map(contractor => {
+            const pwd = contractor.password != null && contractor.password !== '' ? contractor.password : '—';
+            return `
             <tr data-id="${contractor._id}">
               <td>
                 <span class="contractor-name-display">${contractor.name}</span>
                 <input type="text" class="contractor-name-edit" value="${contractor.name}" style="display: none; width: 100%;">
               </td>
               <td>${formatDate(contractor.creationDate)}</td>
+              <td class="password-column-cell" style="display: ${passwordColVisible ? 'table-cell' : 'none'};">${pwd}</td>
               <td>
                 <button class="edit-btn" data-id="${contractor._id}" style="margin-right: 8px;">Edit</button>
                 <button class="delete-btn" data-id="${contractor._id}" style="background-color: #ef4444; color: white; border: none; padding: 4px 12px; border-radius: 4px; cursor: pointer;">Delete</button>
               </td>
             </tr>
-          `).join('');
+          `;
+          }).join('');
           
           // Attach event listeners for edit and delete buttons
           attachContractorEventListeners();
@@ -145,12 +172,33 @@
           console.error('Error loading contractors:', error);
           contractorsTableBody.innerHTML = `
             <tr>
-              <td colspan="3" style="text-align: center; color: #ef4444;">
+              <td colspan="4" style="text-align: center; color: #ef4444;">
                 Error loading contractors. Please refresh the page.
               </td>
             </tr>
           `;
         }
+      }
+
+      function setPasswordColumnVisible(visible) {
+        const header = document.querySelector('.password-column-header');
+        const cells = document.querySelectorAll('.password-column-cell');
+        const showBtn = document.getElementById('showPasswordsBtn');
+        if (header) header.style.display = visible ? 'table-cell' : 'none';
+        cells.forEach(cell => { cell.style.display = visible ? 'table-cell' : 'none'; });
+        if (showBtn) showBtn.textContent = visible ? 'Hide passwords' : 'Show passwords';
+      }
+
+      function initPasswordToggle() {
+        const showBtn = document.getElementById('showPasswordsBtn');
+        if (!showBtn) return;
+        showBtn.addEventListener('click', () => {
+          const visible = document.querySelector('.password-column-header')?.style.display !== 'none';
+          setPasswordColumnVisible(!visible);
+        });
+        document.querySelector('.hide-passwords-btn')?.addEventListener('click', () => {
+          setPasswordColumnVisible(false);
+        });
       }
 
       // Attach event listeners for edit and delete buttons
@@ -301,6 +349,7 @@
 
       // Load contractors on page load
       loadContractors();
+      initPasswordToggle();
     </script>
   </body>
 </html>

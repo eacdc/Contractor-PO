@@ -41,6 +41,10 @@ export const authAPI = {
     method: 'POST',
     body: { userId, passkey }
   }),
+  contractorLogin: (contractorIdOrName, password) => apiCall('/auth/contractor-login', {
+    method: 'POST',
+    body: { contractorIdOrName, password }
+  }),
   register: (userId, passkey, name, role) => apiCall('/auth/register', {
     method: 'POST',
     body: { userId, passkey, name, role }
@@ -134,6 +138,7 @@ export const contractorsAPI = {
 // Bills API
 export const billsAPI = {
   getAll: () => apiCall('/bills'),
+  getByJobNumber: (jobNumber) => apiCall(`/bills/by-job/${encodeURIComponent(jobNumber)}`),
   getByBillNumber: (billNumber) => apiCall(`/bills/${billNumber}`),
   create: (contractorName, jobs) => apiCall('/bills', {
     method: 'POST',

@@ -4,7 +4,32 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Contractor PO System</title>
-    <link rel="stylesheet" href="styles.css" />
+    <script>
+      (function() {
+        var pathname = window.location.pathname || '/';
+        var basePath;
+        if (pathname === '/' || pathname === '') {
+          basePath = '/';
+        } else if (pathname.endsWith('/')) {
+          basePath = pathname;
+        } else if (pathname.lastIndexOf('/') === 0) {
+          basePath = pathname + '/';
+        } else {
+          basePath = pathname.substring(0, pathname.lastIndexOf('/') + 1);
+        }
+        var baseUrl = window.location.origin + basePath;
+        document.write('<base href="' + baseUrl + '">');
+        document.write('<link rel="stylesheet" href="styles.css" />');
+      })();
+    </script>
+    <style>
+      /* Fallback so login page is responsive and centered even before external CSS loads */
+      html, body { margin: 0; padding: 0; min-height: 100%; box-sizing: border-box; }
+      body { display: flex; justify-content: center; align-items: stretch; }
+      .app { width: 100%; max-width: 1120px; min-height: 100vh; display: flex; flex-direction: column; padding: 20px; margin: 0 auto; box-sizing: border-box; }
+      .app-main { flex: 1; display: flex; align-items: center; justify-content: center; padding: 24px; }
+      .auth-wrapper { width: 100%; max-width: 420px; margin: 0 auto; }
+    </style>
   </head>
   <body>
     <div class="app">
@@ -21,9 +46,18 @@
       <main class="app-main">
         <section class="auth-wrapper">
           <div class="auth-card">
+            <div class="login-type-toggle" style="display: flex; gap: 0; margin-bottom: 20px; background: rgba(15, 23, 42, 0.6); border-radius: 10px; padding: 4px; border: 1px solid rgba(156, 163, 175, 0.25);">
+              <button type="button" id="toggleAdmin" class="login-toggle-btn active" style="flex: 1; padding: 10px 16px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; background: rgba(79, 70, 229, 0.4); color: #f9fafb; transition: all 180ms ease-out;">
+                Admin
+              </button>
+              <button type="button" id="toggleContractor" class="login-toggle-btn" style="flex: 1; padding: 10px 16px; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 500; background: transparent; color: #9ca3af; transition: all 180ms ease-out;">
+                Contractor
+              </button>
+            </div>
+
             <header class="auth-header">
               <h2>Sign in</h2>
-              <p>Use your Contractor PO System credentials.</p>
+              <p id="loginSubtext">Use your Contractor PO System credentials.</p>
             </header>
 
             <form
@@ -31,18 +65,19 @@
               id="loginForm"
             >
               <div class="field">
-                <label for="userId">User ID</label>
+                <label for="userId" id="loginIdLabel">User ID</label>
                 <input
                   id="userId"
                   name="userId"
                   type="text"
                   autocomplete="username"
+                  placeholder=""
                   required
                 />
               </div>
 
               <div class="field">
-                <label for="passkey">Passkey</label>
+                <label for="passkey" id="loginPassLabel">Passkey</label>
                 <input
                   id="passkey"
                   name="passkey"
@@ -72,25 +107,68 @@
 
       const loginForm = document.getElementById('loginForm');
       const loginError = document.getElementById('loginError');
+      const toggleAdmin = document.getElementById('toggleAdmin');
+      const toggleContractor = document.getElementById('toggleContractor');
+      const loginIdLabel = document.getElementById('loginIdLabel');
+      const loginPassLabel = document.getElementById('loginPassLabel');
+      const loginSubtext = document.getElementById('loginSubtext');
+      const userIdInput = document.getElementById('userId');
+
+      let isContractorMode = false;
+
+      function setContractorMode(contractor) {
+        isContractorMode = !!contractor;
+        if (contractor) {
+          toggleAdmin.classList.remove('active');
+          toggleAdmin.style.background = 'transparent';
+          toggleAdmin.style.color = '#9ca3af';
+          toggleContractor.classList.add('active');
+          toggleContractor.style.background = 'rgba(79, 70, 229, 0.4)';
+          toggleContractor.style.color = '#f9fafb';
+          loginIdLabel.textContent = 'Contractor ID or Name';
+          loginPassLabel.textContent = 'Password';
+          loginSubtext.textContent = 'Sign in with your contractor credentials.';
+          userIdInput.placeholder = 'e.g. CTR123... or contractor name';
+        } else {
+          toggleContractor.classList.remove('active');
+          toggleContractor.style.background = 'transparent';
+          toggleContractor.style.color = '#9ca3af';
+          toggleAdmin.classList.add('active');
+          toggleAdmin.style.background = 'rgba(79, 70, 229, 0.4)';
+          toggleAdmin.style.color = '#f9fafb';
+          loginIdLabel.textContent = 'User ID';
+          loginPassLabel.textContent = 'Passkey';
+          loginSubtext.textContent = 'Use your Contractor PO System credentials.';
+          userIdInput.placeholder = '';
+        }
+        loginError.style.display = 'none';
+        loginError.textContent = '';
+      }
+
+      toggleAdmin.addEventListener('click', () => setContractorMode(false));
+      toggleContractor.addEventListener('click', () => setContractorMode(true));
 
       loginForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         
-        const userId = document.getElementById('userId').value;
-        const passkey = document.getElementById('passkey').value;
+        const idOrName = document.getElementById('userId').value.trim();
+        const pass = document.getElementById('passkey').value;
 
         loginError.style.display = 'none';
         loginError.textContent = '';
 
         try {
-          const response = await authAPI.login(userId, passkey);
-          
-          // Store token in localStorage
-          localStorage.setItem('token', response.token);
-          localStorage.setItem('user', JSON.stringify(response.user));
-          
-          // Redirect to home
-          window.location.href = 'home.html';
+          if (isContractorMode) {
+            const response = await authAPI.contractorLogin(idOrName, pass);
+            localStorage.setItem('token', response.token);
+            localStorage.setItem('user', JSON.stringify(response.user));
+            window.location.href = 'add-ops.html';
+          } else {
+            const response = await authAPI.login(idOrName, pass);
+            localStorage.setItem('token', response.token);
+            localStorage.setItem('user', JSON.stringify(response.user));
+            window.location.href = 'home.html';
+          }
         } catch (error) {
           loginError.textContent = error.message || 'Login failed. Please check your credentials.';
           loginError.style.display = 'block';

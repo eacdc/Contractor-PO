@@ -20,6 +20,33 @@
     </style>
   </head>
   <body>
+    <script>
+      (function() {
+        try {
+          const userJson = localStorage.getItem('user');
+          if (userJson) {
+            const user = JSON.parse(userJson);
+            if (user && user.type === 'contractor') {
+              document.addEventListener('DOMContentLoaded', function() {
+                const btn = document.getElementById('homeOrLogoutBtn');
+                if (btn) {
+                  btn.textContent = 'Logout';
+                  btn.href = '#';
+                  btn.addEventListener('click', function(e) {
+                    e.preventDefault();
+                    localStorage.removeItem('token');
+                    localStorage.removeItem('user');
+                    var base = window.location.href.split('#')[0].split('?')[0];
+                    base = base.substring(0, base.lastIndexOf('/') + 1);
+                    window.location.replace(base + 'index.html');
+                  });
+                }
+              });
+            }
+          }
+        } catch (err) {}
+      })();
+    </script>
     <div class="app">
       <header class="app-header">
         <div class="brand">
@@ -29,7 +56,7 @@
             <p>Add operations to a specific job.</p>
           </div>
         </div>
-        <a href="home.html" class="home-btn">Home</a>
+        <a href="home.html" class="home-btn" id="homeOrLogoutBtn">Home</a>
       </header>
 
       <main class="app-main app-main--home">
@@ -329,6 +356,15 @@
 
     <script type="module">
       import { jobsAPI, operationsAPI, seriesAPI } from './api.js';
+
+      function isContractorUser() {
+        try {
+          const userJson = localStorage.getItem('user');
+          if (!userJson) return false;
+          const user = JSON.parse(userJson);
+          return !!(user && user.type === 'contractor');
+        } catch (e) { return false; }
+      }
 
       let currentJobId = null;
       let jobOpsMasterJobNumbersLoaded = false;
@@ -770,10 +806,12 @@
               pendingTh.textContent = 'Pending';
               headerRow.appendChild(pendingTh);
 
-              // Add Action column header
-              const actionTh = document.createElement('th');
-              actionTh.textContent = 'Action';
-              headerRow.appendChild(actionTh);
+              // Add Action column header (admin only; contractors cannot delete ops)
+              if (!isContractorUser()) {
+                const actionTh = document.createElement('th');
+                actionTh.textContent = 'Action';
+                headerRow.appendChild(actionTh);
+              }
 
               // Rows: each op, with qty per contractor + pending
               previousOps.operations.forEach(op => {
@@ -792,20 +830,22 @@
                 const pending = op.pending !== undefined ? op.pending : (op.totalOpsQty || 0);
                 cellsHtml += `<td>${pending}</td>`;
 
-                // Add delete button if totalOpsQty === pending (no work done)
-                const totalOpsQty = op.totalOpsQty || 0;
-                if (totalOpsQty === pending) {
-                  cellsHtml += `<td>
-                    <button class="secondary-btn primary-btn--sm delete-op-btn" 
-                            data-job-number="${jobNumber}" 
-                            data-op-id="${op.opsId}" 
-                            data-op-name="${op.opsName}"
-                            title="Delete Operation">
-                      🗑️
-                    </button>
-                  </td>`;
-                } else {
-                  cellsHtml += `<td>-</td>`;
+                // Add delete button if totalOpsQty === pending (admin only)
+                if (!isContractorUser()) {
+                  const totalOpsQty = op.totalOpsQty || 0;
+                  if (totalOpsQty === pending) {
+                    cellsHtml += `<td>
+                      <button class="secondary-btn primary-btn--sm delete-op-btn" 
+                              data-job-number="${jobNumber}" 
+                              data-op-id="${op.opsId}" 
+                              data-op-name="${op.opsName}"
+                              title="Delete Operation">
+                        🗑️
+                      </button>
+                    </td>`;
+                  } else {
+                    cellsHtml += `<td>-</td>`;
+                  }
                 }
 
                 row.innerHTML = cellsHtml;
@@ -821,30 +861,33 @@
               pendingTh.textContent = 'Pending';
               headerRow.appendChild(pendingTh);
 
-              // Add Action column header
-              const actionTh = document.createElement('th');
-              actionTh.textContent = 'Action';
-              headerRow.appendChild(actionTh);
+              // Add Action column header (admin only)
+              if (!isContractorUser()) {
+                const actionTh = document.createElement('th');
+                actionTh.textContent = 'Action';
+                headerRow.appendChild(actionTh);
+              }
 
               previousOps.operations.forEach(op => {
                 const row = document.createElement('tr');
                 const pending = op.pending !== undefined ? op.pending : (op.totalOpsQty || 0);
                 const totalOpsQty = op.totalOpsQty || 0;
                 
-                // Add delete button if totalOpsQty === pending (no work done)
                 let actionCell = '';
-                if (totalOpsQty === pending) {
-                  actionCell = `<td>
-                    <button class="secondary-btn primary-btn--sm delete-op-btn" 
-                            data-job-number="${jobNumber}" 
-                            data-op-id="${op.opsId}" 
-                            data-op-name="${op.opsName}"
-                            title="Delete Operation">
-                      🗑️
-                    </button>
-                  </td>`;
-                } else {
-                  actionCell = '<td>-</td>';
+                if (!isContractorUser()) {
+                  if (totalOpsQty === pending) {
+                    actionCell = `<td>
+                      <button class="secondary-btn primary-btn--sm delete-op-btn" 
+                              data-job-number="${jobNumber}" 
+                              data-op-id="${op.opsId}" 
+                              data-op-name="${op.opsName}"
+                              title="Delete Operation">
+                        🗑️
+                      </button>
+                    </td>`;
+                  } else {
+                    actionCell = '<td>-</td>';
+                  }
                 }
                 
                 row.innerHTML = `<td>${op.opsName}</td><td>0</td><td>${pending}</td>${actionCell}`;
@@ -853,7 +896,8 @@
             }
           } else {
             // No previous work: show basic header and keep body empty
-            headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th><th>Pending</th>';
+            const baseHeaders = '<th>Ops</th><th>Completed Qty</th><th>Pending</th>';
+            headerRow.innerHTML = isContractorUser() ? baseHeaders : baseHeaders + '<th>Action</th>';
             prevOpsBody.innerHTML = '';
           }
 
@@ -878,8 +922,9 @@
           // a table with one row saying "No previous ops found".
           const headerRow = document.getElementById('prevOpsHeader');
           const prevOpsBody = document.getElementById('prevOpsBody');
-          headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th><th>Pending</th><th>Action</th>';
-          prevOpsBody.innerHTML = '<tr><td colspan="4">No previous ops found</td></tr>';
+          const colCount = isContractorUser() ? 3 : 4;
+          headerRow.innerHTML = colCount === 3 ? '<th>Ops</th><th>Completed Qty</th><th>Pending</th>' : '<th>Ops</th><th>Completed Qty</th><th>Pending</th><th>Action</th>';
+          prevOpsBody.innerHTML = `<tr><td colspan="${colCount}">No previous ops found</td></tr>`;
 
           // Mark that a job has been searched (even if not found)
           hasSearchedJob = true;
@@ -1990,10 +2035,12 @@
             pendingTh.textContent = 'Pending';
             headerRow.appendChild(pendingTh);
             
-            // Add Action column header
-            const actionTh = document.createElement('th');
-            actionTh.textContent = 'Action';
-            headerRow.appendChild(actionTh);
+            // Add Action column header (admin only)
+            if (!isContractorUser()) {
+              const actionTh = document.createElement('th');
+              actionTh.textContent = 'Action';
+              headerRow.appendChild(actionTh);
+            }
             
             jobData.previousOps.operations.forEach(op => {
               const row = document.createElement('tr');
@@ -2007,46 +2054,49 @@
               const pending = op.pending !== undefined ? op.pending : (op.totalOpsQty || 0);
               cellsHtml += `<td>${pending}</td>`;
               
-              // Add delete button if totalOpsQty === pending (no work done)
-              const totalOpsQty = op.totalOpsQty || 0;
-              if (totalOpsQty === pending) {
-                cellsHtml += `<td>
-                  <button class="secondary-btn primary-btn--sm delete-op-btn" 
-                          data-job-number="${jobData.jobNumber}" 
-                          data-op-id="${op.opsId}" 
-                          data-op-name="${op.opsName}"
-                          title="Delete Operation">
-                    🗑️
-                  </button>
-                </td>`;
-              } else {
-                cellsHtml += `<td>-</td>`;
+              if (!isContractorUser()) {
+                const totalOpsQty = op.totalOpsQty || 0;
+                if (totalOpsQty === pending) {
+                  cellsHtml += `<td>
+                    <button class="secondary-btn primary-btn--sm delete-op-btn" 
+                            data-job-number="${jobData.jobNumber}" 
+                            data-op-id="${op.opsId}" 
+                            data-op-name="${op.opsName}"
+                            title="Delete Operation">
+                      🗑️
+                    </button>
+                  </td>`;
+                } else {
+                  cellsHtml += `<td>-</td>`;
+                }
               }
               
               row.innerHTML = cellsHtml;
               tbody.appendChild(row);
             });
           } else {
-            headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th><th>Pending</th><th>Action</th>';
+            const actionHeader = isContractorUser() ? '' : '<th>Action</th>';
+            headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th><th>Pending</th>' + actionHeader;
             jobData.previousOps.operations.forEach(op => {
               const row = document.createElement('tr');
               const pending = op.pending !== undefined ? op.pending : (op.totalOpsQty || 0);
               const totalOpsQty = op.totalOpsQty || 0;
               
-              // Add delete button if totalOpsQty === pending (no work done)
               let actionCell = '';
-              if (totalOpsQty === pending) {
-                actionCell = `<td>
-                  <button class="secondary-btn primary-btn--sm delete-op-btn" 
-                          data-job-number="${jobData.jobNumber}" 
-                          data-op-id="${op.opsId}" 
-                          data-op-name="${op.opsName}"
-                          title="Delete Operation">
-                    🗑️
-                  </button>
-                </td>`;
-              } else {
-                actionCell = '<td>-</td>';
+              if (!isContractorUser()) {
+                if (totalOpsQty === pending) {
+                  actionCell = `<td>
+                    <button class="secondary-btn primary-btn--sm delete-op-btn" 
+                            data-job-number="${jobData.jobNumber}" 
+                            data-op-id="${op.opsId}" 
+                            data-op-name="${op.opsName}"
+                            title="Delete Operation">
+                      🗑️
+                    </button>
+                  </td>`;
+                } else {
+                  actionCell = '<td>-</td>';
+                }
               }
               
               row.innerHTML = `<td>${op.opsName}</td><td>0</td><td>${pending}</td>${actionCell}`;
@@ -2056,7 +2106,8 @@
           
           thead.appendChild(headerRow);
         } else {
-          thead.innerHTML = '<tr><th>Ops</th><th>Completed Qty</th><th>Pending</th><th>Action</th></tr>';
+          const actionHeader = isContractorUser() ? '' : '<th>Action</th>';
+          thead.innerHTML = '<tr><th>Ops</th><th>Completed Qty</th><th>Pending</th>' + actionHeader + '</tr>';
         }
         
         table.appendChild(thead);

@@ -8,6 +8,19 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   </head>
   <body>
+    <script>
+      (function() {
+        try {
+          var userJson = localStorage.getItem('user');
+          if (userJson) {
+            var user = JSON.parse(userJson);
+            if (user && user.type === 'contractor') {
+              window.location.replace('add-ops.html');
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
     <div class="app">
       <header class="app-header">
         <div class="brand">
@@ -61,6 +74,10 @@
                 placeholder="Enter bill number to search..."
               />
             </div>
+            <div id="unpaidSelectAllRow" style="display: none; margin-bottom: 8px;">
+              <button type="button" class="secondary-btn primary-btn--sm" id="selectAllUnpaidBtn">Select all</button>
+              <button type="button" class="secondary-btn primary-btn--sm" id="unselectAllUnpaidBtn" style="margin-left: 8px;">Unselect all</button>
+            </div>
             <div class="table-wrapper">
               <table class="data-table" id="contractorBillsTable">
                 <thead>
@@ -70,6 +87,10 @@
                   <!-- Rows filled by JS -->
                 </tbody>
               </table>
+            </div>
+            <div id="unpaidBulkActions" style="display: none; margin-top: 12px; gap: 8px;">
+              <button type="button" class="primary-btn primary-btn--sm" id="payAllSelectedBtn">Pay all selected</button>
+              <button type="button" class="secondary-btn primary-btn--sm" id="downloadAllSelectedBtn">Download all selected</button>
             </div>
             <p class="inline-info" id="billTableInfo"></p>
           </div>
@@ -132,32 +153,29 @@
         }, 0);
       }
 
-      async function generateBillPDF(bill) {
-        const { jsPDF } = window.jspdf;
-        // Create PDF in landscape mode
-        const doc = new jsPDF('landscape', 'mm', 'a4');
-        
-        // Page dimensions
-        const pageWidth = doc.internal.pageSize.getWidth();  // ~297mm
-        const pageHeight = doc.internal.pageSize.getHeight(); // ~210mm
+      /** Adds one bill's content to an existing jsPDF document (used for single or combined PDF).
+       * @param {object} doc - jsPDF instance
+       * @param {object} bill - bill data
+       * @param {boolean} includeSignature - if false, skip Authorized Signature and footer (use for combined PDF so signature is only on last page)
+       */
+      function addBillContentToPDF(doc, bill, includeSignature = true) {
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
         const margin = 15;
-        const tableWidth = pageWidth - (2 * margin); // Full width table
+        const tableWidth = pageWidth - (2 * margin);
         let yPos = margin;
-        
-        // ===== HEADER =====
+
         doc.setFontSize(22);
         doc.setFont(undefined, 'bold');
         doc.setTextColor(40, 40, 40);
         doc.text('CONTRACTOR BILL', pageWidth / 2, yPos, { align: 'center' });
         yPos += 12;
-        
-        // Divider line under header
-        doc.setDrawColor(79, 70, 229); // Accent color
+
+        doc.setDrawColor(79, 70, 229);
         doc.setLineWidth(0.8);
         doc.line(margin, yPos, pageWidth - margin, yPos);
         yPos += 10;
-        
-        // Bill details row
+
         doc.setFontSize(11);
         doc.setFont(undefined, 'normal');
         doc.setTextColor(60, 60, 60);
@@ -165,205 +183,193 @@
         doc.text(`Bill No: ${bill.billNumber}`, margin, yPos);
         doc.text(`Date: ${billDate}`, pageWidth - margin, yPos, { align: 'right' });
         yPos += 7;
-        
+
         doc.setFontSize(12);
         doc.setFont(undefined, 'bold');
         doc.setTextColor(40, 40, 40);
         doc.text(`Contractor: ${bill.contractorName}`, margin, yPos);
         yPos += 12;
-        
-        // ===== TABLE SETUP =====
+
         const colHeaders = ['Job Number', 'Client Name', 'Job Title', 'Operation', 'Qty/Book', 'Rate', 'Qty Completed', 'Total Value'];
-        // Distribute columns proportionally across full width
-        const colRatios = [0.10, 0.12, 0.12, 0.22, 0.10, 0.10, 0.12, 0.12]; // Must sum to 1
+        const colRatios = [0.10, 0.12, 0.12, 0.22, 0.10, 0.10, 0.12, 0.12];
         const colWidths = colRatios.map(r => r * tableWidth);
         const colX = [margin];
-        for (let i = 1; i < colHeaders.length; i++) {
-          colX.push(colX[i - 1] + colWidths[i - 1]);
-        }
+        for (let i = 1; i < colHeaders.length; i++) colX.push(colX[i - 1] + colWidths[i - 1]);
         const rowHeight = 9;
-        
-        // Function to draw table header
+
         function drawTableHeader(y) {
-          // Header background
-          doc.setFillColor(79, 70, 229); // Purple accent
+          doc.setFillColor(79, 70, 229);
           doc.rect(margin, y, tableWidth, rowHeight, 'F');
-          
-          // Header text
           doc.setFont(undefined, 'bold');
           doc.setFontSize(10);
           doc.setTextColor(255, 255, 255);
-          
           colHeaders.forEach((header, i) => {
-            const cellX = colX[i] + colWidths[i] / 2;
-            doc.text(header, cellX, y + rowHeight - 2.5, { align: 'center' });
+            doc.text(header, colX[i] + colWidths[i] / 2, y + rowHeight - 2.5, { align: 'center' });
           });
-          
           return y + rowHeight;
         }
-        
-        // Function to draw table row with text wrapping for Client Name, Job Title, and Operation
+
         function drawTableRow(y, values, isAlt) {
           doc.setFont(undefined, 'normal');
           doc.setFontSize(9);
-          
-          // Wrap text for Client Name (index 1), Job Title (index 2), and Operation (index 3)
-          // Calculate available width for wrapping (column width minus padding)
-          const padding = 6; // 3mm on each side
+          const padding = 6;
           const wrappedTexts = values.map((val, i) => {
             const text = String(val || '');
-            // Only wrap Client Name (index 1), Job Title (index 2), and Operation (index 3)
-            if (i === 1 || i === 2 || i === 3) {
-              const availableWidth = colWidths[i] - padding;
-              // Split text into multiple lines that fit within the column width
-              const lines = doc.splitTextToSize(text, availableWidth);
-              return lines;
-            }
-            return [text]; // Other columns: single line
+            if (i === 1 || i === 2 || i === 3) return doc.splitTextToSize(text, colWidths[i] - padding);
+            return [text];
           });
-          
-          // Calculate the maximum number of lines needed (for row height)
           const maxLines = Math.max(...wrappedTexts.map(lines => lines.length));
-          const lineHeight = 4.5; // Height per line in mm
-          const minRowHeight = 9; // Minimum row height
-          const actualRowHeight = Math.max(minRowHeight, maxLines * lineHeight);
-          
-          // Row background
+          const lineHeight = 4.5;
+          const actualRowHeight = Math.max(9, maxLines * lineHeight);
           if (isAlt) {
             doc.setFillColor(245, 245, 250);
             doc.rect(margin, y, tableWidth, actualRowHeight, 'F');
           }
-          
-          // Cell borders
           doc.setDrawColor(220, 220, 220);
           doc.setLineWidth(0.1);
           doc.line(margin, y + actualRowHeight, margin + tableWidth, y + actualRowHeight);
-          
-          // Vertical lines
-          colX.forEach((x, i) => {
-            if (i > 0) {
-              doc.line(x, y, x, y + actualRowHeight);
-            }
-          });
-          
-          // Cell content
+          colX.forEach((x, i) => { if (i > 0) doc.line(x, y, x, y + actualRowHeight); });
           doc.setTextColor(50, 50, 50);
-          
           values.forEach((val, i) => {
             const lines = wrappedTexts[i];
             const cellX = i < 4 ? colX[i] + 3 : colX[i] + colWidths[i] - 3;
             const align = i < 4 ? 'left' : 'right';
-            
-            // Calculate starting Y position (center vertically if multiple lines)
             const totalTextHeight = lines.length * lineHeight;
             const startY = y + (actualRowHeight - totalTextHeight) / 2 + lineHeight;
-            
-            // Draw each line of text
             lines.forEach((line, lineIndex) => {
-              const lineY = startY + (lineIndex * lineHeight);
-              doc.text(line, cellX, lineY, { align: align });
+              doc.text(line, cellX, startY + lineIndex * lineHeight, { align });
             });
           });
-          
           return y + actualRowHeight;
         }
-        
-        // Draw table header
+
         yPos = drawTableHeader(yPos);
         const tableStartY = yPos - rowHeight;
         let currentTableStartY = tableStartY;
-        
-        // Draw table rows
         let billAmount = 0;
         let rowCount = 0;
-        
-        bill.jobs.forEach((job) => {
-          job.ops.forEach((op, opIndex) => {
-            // Check for page break
+
+        (bill.jobs || []).forEach((job) => {
+          (job.ops || []).forEach((op, opIndex) => {
             if (yPos > pageHeight - 50) {
-              // Draw outer border for current page
               doc.setDrawColor(79, 70, 229);
               doc.setLineWidth(0.3);
               doc.rect(margin, currentTableStartY, tableWidth, yPos - currentTableStartY);
-              
               doc.addPage('landscape');
               yPos = margin;
               yPos = drawTableHeader(yPos);
               currentTableStartY = yPos - rowHeight;
             }
-            
             const qtyBook = Number(op.qtyBook || 0);
             const rate = Number(op.rate || 0);
             const qtyCompleted = Number(op.qtyCompleted || 0);
             const total = Number(op.totalValue || 0);
             billAmount += total;
-            
-            // Get operation name
             const operationName = op.opsName || op.operationName || op.name || `Op ${opIndex + 1}`;
-            const jobNumberText = opIndex === 0 ? job.jobNumber : '';
-            const clientNameText = opIndex === 0 ? (job.clientName || '') : '';
-            const jobTitleText = opIndex === 0 ? (job.jobTitle || '') : '';
-            
-            const values = [
-              jobNumberText,
-              clientNameText,
-              jobTitleText,
-              operationName,
-              qtyBook.toFixed(4),
-              rate.toFixed(2),
-              qtyCompleted.toFixed(2),
-              total.toFixed(2)
-            ];
-            
+            // Every row shows full job details (one job + one operation per row, no merged cells)
+            const jobNumberText = job.jobNumber || '';
+            const clientNameText = job.clientName || '';
+            const jobTitleText = job.jobTitle || '';
+            const values = [jobNumberText, clientNameText, jobTitleText, operationName, qtyBook.toFixed(4), rate.toFixed(2), qtyCompleted.toFixed(2), total.toFixed(2)];
             yPos = drawTableRow(yPos, values, rowCount % 2 === 1);
             rowCount++;
           });
         });
-        
-        // Draw outer border
+
         doc.setDrawColor(79, 70, 229);
         doc.setLineWidth(0.3);
         doc.rect(margin, currentTableStartY, tableWidth, yPos - currentTableStartY);
-        
-        // ===== GRAND TOTAL =====
+
         const roomRent = Number(bill.roomRent || 0);
         const grandTotal = billAmount + roomRent;
-        
-        yPos += 5;
-        
-        // If room rent exists, show breakdown
+        yPos += 8;
+
+        // Separator line above combined total
+        doc.setDrawColor(180, 180, 180);
+        doc.setLineWidth(0.3);
+        doc.line(margin, yPos, pageWidth - margin, yPos);
+        yPos += 6;
+
         if (roomRent > 0) {
           doc.setFont(undefined, 'normal');
           doc.setFontSize(10);
           doc.setTextColor(60, 60, 60);
           doc.text('Bill Amount:', pageWidth - margin - 100, yPos + 4, { align: 'right' });
           doc.text(billAmount.toFixed(2), pageWidth - margin - 3, yPos + 4, { align: 'right' });
-          
           yPos += 6;
           doc.text('Room Rent:', pageWidth - margin - 100, yPos + 4, { align: 'right' });
           doc.text(roomRent.toFixed(2), pageWidth - margin - 3, yPos + 4, { align: 'right' });
-          
-          // Draw separator line below Room Rent (with more spacing)
           yPos += 6;
           doc.setDrawColor(200, 200, 200);
           doc.setLineWidth(0.2);
           doc.line(pageWidth - margin - 100, yPos, pageWidth - margin, yPos);
           yPos += 5;
         }
-        
+
+        // Grand total at end of bill
         doc.setFillColor(240, 240, 245);
-        doc.rect(pageWidth - margin - 100, yPos, 100, 10, 'F');
+        doc.rect(pageWidth - margin - 100, yPos, 100, 12, 'F');
         doc.setDrawColor(79, 70, 229);
         doc.setLineWidth(0.3);
-        doc.rect(pageWidth - margin - 100, yPos, 100, 10);
-        
+        doc.rect(pageWidth - margin - 100, yPos, 100, 12);
         doc.setFont(undefined, 'bold');
         doc.setFontSize(11);
         doc.setTextColor(40, 40, 40);
-        doc.text('Grand Total:', pageWidth - margin - 55, yPos + 7, { align: 'right' });
-        doc.text(grandTotal.toFixed(2), pageWidth - margin - 3, yPos + 7, { align: 'right' });
-        
-        // ===== SIGNATURE LINE =====
+        doc.text('Grand Total:', pageWidth - margin - 55, yPos + 8, { align: 'right' });
+        doc.text(grandTotal.toFixed(2), pageWidth - margin - 3, yPos + 8, { align: 'right' });
+
+        if (includeSignature) {
+          const sigY = pageHeight - 25;
+          doc.setDrawColor(100, 100, 100);
+          doc.setLineWidth(0.2);
+          doc.line(pageWidth - margin - 70, sigY, pageWidth - margin, sigY);
+          doc.setFont(undefined, 'normal');
+          doc.setFontSize(9);
+          doc.setTextColor(100, 100, 100);
+          doc.text('Authorized Signature', pageWidth - margin - 35, sigY + 5, { align: 'center' });
+          doc.setFontSize(8);
+          doc.setTextColor(150, 150, 150);
+          doc.text('CDC Printers Pvt Ltd', pageWidth / 2, pageHeight - 5, { align: 'center' });
+        }
+      }
+
+      async function generateBillPDF(bill) {
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('landscape', 'mm', 'a4');
+        addBillContentToPDF(doc, bill);
+        doc.save(`Bill_${bill.billNumber}.pdf`);
+      }
+
+      function generateCombinedBillsPDF(bills) {
+        if (!bills || bills.length === 0) return;
+        const { jsPDF } = window.jspdf;
+        const doc = new jsPDF('landscape', 'mm', 'a4');
+        bills.forEach((bill, i) => {
+          if (i > 0) doc.addPage('landscape');
+          addBillContentToPDF(doc, bill, false); // no signature per bill; only on last page
+        });
+        // Combined total = sum of all selected bills' grand totals (last page only)
+        const combinedTotal = bills.reduce((sum, bill) => sum + calculateBillTotal(bill), 0);
+        doc.addPage('landscape');
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        const margin = 15;
+        let yPos = margin + 30;
+        doc.setDrawColor(180, 180, 180);
+        doc.setLineWidth(0.3);
+        doc.line(margin, yPos, pageWidth - margin, yPos);
+        yPos += 12;
+        doc.setFillColor(240, 240, 245);
+        doc.rect(pageWidth - margin - 120, yPos, 120, 14, 'F');
+        doc.setDrawColor(79, 70, 229);
+        doc.setLineWidth(0.3);
+        doc.rect(pageWidth - margin - 120, yPos, 120, 14);
+        doc.setFont(undefined, 'bold');
+        doc.setFontSize(12);
+        doc.setTextColor(40, 40, 40);
+        doc.text('Combined Total:', pageWidth - margin - 70, yPos + 9, { align: 'right' });
+        doc.text(combinedTotal.toFixed(2), pageWidth - margin - 3, yPos + 9, { align: 'right' });
+        // Authorized Signature and footer only on this last page
         const sigY = pageHeight - 25;
         doc.setDrawColor(100, 100, 100);
         doc.setLineWidth(0.2);
@@ -372,14 +378,10 @@
         doc.setFontSize(9);
         doc.setTextColor(100, 100, 100);
         doc.text('Authorized Signature', pageWidth - margin - 35, sigY + 5, { align: 'center' });
-        
-        // ===== FOOTER =====
         doc.setFontSize(8);
         doc.setTextColor(150, 150, 150);
         doc.text('CDC Printers Pvt Ltd', pageWidth / 2, pageHeight - 5, { align: 'center' });
-        
-        // Save PDF
-        doc.save(`Bill_${bill.billNumber}.pdf`);
+        doc.save('Bills_selected.pdf');
       }
 
       async function downloadBill(billNumber) {
@@ -1092,7 +1094,7 @@
 
         if (filtered.length === 0) {
           tableHead.innerHTML = '';
-          const colspan = isPaid ? 5 : 7; // Paid: 5 columns, Unpaid: 7 columns (includes Edit)
+          const colspan = isPaid ? 5 : 8; // Paid: 5; Unpaid: 8 (checkbox + Bill Number + ... + Delete)
           tableBody.innerHTML =
             `<tr><td colspan="${colspan}">No ` +
             (isPaid ? 'paid' : 'unpaid') +
@@ -1113,6 +1115,7 @@
         } else {
           tableHead.innerHTML = `
             <tr>
+              <th style="width: 44px;"><span id="unpaidCheckboxHeader">Select</span></th>
               <th>Bill Number</th>
               <th>Creation Date</th>
               <th>Total Amount</th>
@@ -1158,6 +1161,7 @@
             `;
           } else {
             tr.innerHTML = `
+              <td><input type="checkbox" class="unpaid-bill-checkbox" data-bill="${bill.billNumber}" /></td>
               <td>${bill.billNumber}</td>
               <td>${formatDate(bill.createdAt)}</td>
               <td>${totalDisplay}</td>
@@ -1190,6 +1194,25 @@
         tableInfo.textContent = `Showing ${filtered.length} ${
           isPaid ? 'paid' : 'unpaid'
         } bill(s). Grand total: ${grandTotal.toFixed(2)}`;
+
+        // Unpaid only: show select/unselect row when there are rows
+        const selectAllRow = document.getElementById('unpaidSelectAllRow');
+        const bulkActions = document.getElementById('unpaidBulkActions');
+        if (selectAllRow) selectAllRow.style.display = isPaid || filtered.length === 0 ? 'none' : 'block';
+        if (bulkActions) bulkActions.style.display = 'none';
+        updateUnpaidBulkActionsVisibility();
+      }
+
+      function updateUnpaidBulkActionsVisibility() {
+        const bulkActions = document.getElementById('unpaidBulkActions');
+        if (!bulkActions) return;
+        const checked = document.querySelectorAll('.unpaid-bill-checkbox:checked');
+        bulkActions.style.display = checked.length > 0 ? 'flex' : 'none';
+      }
+
+      function getSelectedUnpaidBillNumbers() {
+        const checkboxes = document.querySelectorAll('.unpaid-bill-checkbox:checked');
+        return Array.from(checkboxes).map((cb) => cb.getAttribute('data-bill')).filter(Boolean);
       }
 
       async function loadContractors() {
@@ -1229,6 +1252,53 @@
 
       billNumberSearch.addEventListener('input', () => {
         renderTable();
+      });
+
+      tableBody.addEventListener('change', (e) => {
+        if (e.target && e.target.classList.contains('unpaid-bill-checkbox')) {
+          updateUnpaidBulkActionsVisibility();
+        }
+      });
+
+      document.getElementById('selectAllUnpaidBtn').addEventListener('click', () => {
+        document.querySelectorAll('.unpaid-bill-checkbox').forEach((cb) => { cb.checked = true; });
+        updateUnpaidBulkActionsVisibility();
+      });
+
+      document.getElementById('unselectAllUnpaidBtn').addEventListener('click', () => {
+        document.querySelectorAll('.unpaid-bill-checkbox').forEach((cb) => { cb.checked = false; });
+        updateUnpaidBulkActionsVisibility();
+      });
+
+      document.getElementById('payAllSelectedBtn').addEventListener('click', async () => {
+        const billNumbers = getSelectedUnpaidBillNumbers();
+        if (billNumbers.length === 0) return;
+        if (!confirm(`Mark ${billNumbers.length} selected bill(s) as paid? Payment date will be set to today.`)) return;
+        warningEl.textContent = '';
+        try {
+          for (const billNumber of billNumbers) {
+            await billsAPI.markAsPaid(billNumber, 0);
+          }
+          await loadBills();
+          warningEl.textContent = `${billNumbers.length} bill(s) marked as paid.`;
+          warningEl.style.color = '#4ade80';
+          setTimeout(() => { warningEl.textContent = ''; warningEl.style.color = ''; }, 3000);
+        } catch (err) {
+          console.error('Error marking bills as paid:', err);
+          warningEl.textContent = err.message || 'Error marking bills as paid. Please try again.';
+        }
+      });
+
+      document.getElementById('downloadAllSelectedBtn').addEventListener('click', async () => {
+        const billNumbers = getSelectedUnpaidBillNumbers();
+        if (billNumbers.length === 0) return;
+        try {
+          const bills = await Promise.all(billNumbers.map((bn) => billsAPI.getByBillNumber(bn)));
+          generateCombinedBillsPDF(bills);
+        } catch (err) {
+          console.error('Error downloading combined PDF:', err);
+          warningEl.textContent = 'Error loading bills for download. Please try again.';
+        }
       });
 
       tableBody.addEventListener('click', async (e) => {
