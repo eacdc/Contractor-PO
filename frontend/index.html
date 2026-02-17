@@ -12,10 +12,15 @@
           basePath = '/';
         } else if (pathname.endsWith('/')) {
           basePath = pathname;
-        } else if (pathname.lastIndexOf('/') === 0) {
-          basePath = pathname + '/';
         } else {
-          basePath = pathname.substring(0, pathname.lastIndexOf('/') + 1);
+          var lastSlash = pathname.lastIndexOf('/');
+          var lastSegment = lastSlash >= 0 ? pathname.substring(lastSlash + 1) : pathname;
+          // If last segment looks like a file (e.g. index.html), use directory as base so assets resolve correctly
+          if (lastSegment.indexOf('.') >= 0) {
+            basePath = lastSlash >= 0 ? pathname.substring(0, lastSlash + 1) : '/';
+          } else {
+            basePath = pathname + '/';
+          }
         }
         var baseUrl = window.location.origin + basePath;
         document.write('<base href="' + baseUrl + '">');
