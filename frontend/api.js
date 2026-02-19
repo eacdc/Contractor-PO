@@ -95,6 +95,7 @@ export const operationsAPI = {
     if (!category || !String(category).trim()) return Promise.resolve([]);
     return apiCall(`/operations?category=${encodeURIComponent(String(category).trim())}`);
   },
+  getCategories: () => apiCall('/operations/categories'),
   getById: (id) => apiCall(`/operations/${id}`),
   create: (opsName, type, ratePerUnit, categories) => apiCall('/operations', {
     method: 'POST',

@@ -87,7 +87,10 @@
               </div>
               <div class="field" id="newOpsCategoryField" style="display: flex; flex-direction: column; gap: 6px;">
                 <label>Categories (optional, multi-select)</label>
-                <div id="newOpsCategories" class="ops-categories-checkboxes" style="display: flex; flex-wrap: wrap; gap: 8px 16px; max-height: 120px; overflow-y: auto; padding: 6px 0;"></div>
+                <div class="category-dropdown" id="newOpsCategoryDropdown" style="position: relative;">
+                  <button type="button" class="category-dropdown-trigger" id="newOpsCategoryTrigger" style="min-width: 220px; text-align: left; padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer;">Select categories</button>
+                  <div class="category-dropdown-panel" id="newOpsCategoryPanel" style="display: none; position: absolute; top: 100%; left: 0; margin-top: 4px; min-width: 280px; max-height: 220px; overflow-y: auto; background: #fff; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 100; padding: 8px;"></div>
+                </div>
               </div>
               <div class="field">
                 <label for="newOpsRatePerUnit">Rate/Unit</label>
@@ -138,17 +141,7 @@
     <script type="module">
       import { operationsAPI } from './api.js';
 
-      const OPERATION_CATEGORIES = [
-        'Carton ‐ Side Pasting',
-        'Carton ‐ Crashlock | Complex Pasting',
-        'Corrugated Carton ‐ Side Pasting',
-        'Carton ‐ Tray',
-        'Corrugated Carton ‐ Crash Lock | Complex Pasting',
-        'Carton ‐ DK ‐ Crashlock | Complex Pasting',
-        'Unprinted Card',
-        'Tags',
-        'Corrugarted Carton ‐ Tray'
-      ];
+      let operationCategoriesList = [];
 
       const opsSearchInput = document.getElementById("opsSearch");
       const opsSearchInfo = document.getElementById("opsSearchInfo");
@@ -188,7 +181,8 @@
       const newOpsNameInput = document.getElementById("newOpsName");
       const newOpsTypeSelect = document.getElementById("newOpsType");
       const newOpsRatePerUnitInput = document.getElementById("newOpsRatePerUnit");
-      const newOpsCategoriesContainer = document.getElementById("newOpsCategories");
+      const newOpsCategoryTrigger = document.getElementById("newOpsCategoryTrigger");
+      const newOpsCategoryPanel = document.getElementById("newOpsCategoryPanel");
       const addNewOpsBtn = document.getElementById("addNewOpsBtn");
       const addNewOpsWarning = document.getElementById("addNewOpsWarning");
       const addedOpsWrapper = document.getElementById("addedOpsWrapper");
@@ -204,15 +198,46 @@
 
       function categoryCheckboxesHtml(selectedArr) {
         const set = new Set(Array.isArray(selectedArr) ? selectedArr : (selectedArr != null && selectedArr !== '' ? [selectedArr] : []));
-        return OPERATION_CATEGORIES.map(cat => {
+        return operationCategoriesList.map(cat => {
           const checked = set.has(cat) ? ' checked' : '';
           return `<label style="display: flex; align-items: center; gap: 4px; white-space: nowrap;"><input type="checkbox" class="ops-category-cb" value="${escapeHtml(cat)}"${checked}>${escapeHtml(cat)}</label>`;
         }).join('');
       }
 
-      // Populate add-form category checkboxes
-      if (newOpsCategoriesContainer) {
-        newOpsCategoriesContainer.innerHTML = categoryCheckboxesHtml([]);
+      function updateCategoryTriggerLabel() {
+        if (!newOpsCategoryTrigger || !newOpsCategoryPanel) return;
+        const checked = newOpsCategoryPanel.querySelectorAll('.ops-category-cb:checked');
+        const n = checked.length;
+        newOpsCategoryTrigger.textContent = n === 0 ? 'Select categories' : (n === 1 ? '1 category' : n + ' categories');
+      }
+
+      async function loadCategories() {
+        try {
+          operationCategoriesList = await operationsAPI.getCategories() || [];
+        } catch (e) {
+          console.error('Error loading categories:', e);
+          operationCategoriesList = [];
+        }
+        if (newOpsCategoryPanel) {
+          newOpsCategoryPanel.innerHTML = operationCategoriesList.map(cat =>
+            `<label style="display: flex; align-items: center; gap: 6px; padding: 4px 0; cursor: pointer;"><input type="checkbox" class="ops-category-cb" value="${escapeHtml(cat)}">${escapeHtml(cat)}</label>`
+          ).join('');
+          newOpsCategoryPanel.querySelectorAll('.ops-category-cb').forEach(cb => {
+            cb.addEventListener('change', updateCategoryTriggerLabel);
+          });
+        }
+      }
+
+      if (newOpsCategoryTrigger && newOpsCategoryPanel) {
+        newOpsCategoryTrigger.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const open = newOpsCategoryPanel.style.display !== 'none';
+          newOpsCategoryPanel.style.display = open ? 'none' : 'block';
+        });
+        document.addEventListener('click', () => {
+          newOpsCategoryPanel.style.display = 'none';
+        });
+        newOpsCategoryPanel.addEventListener('click', (e) => e.stopPropagation());
       }
 
       if (
@@ -226,8 +251,8 @@
           const name = newOpsNameInput.value.trim();
           const type = newOpsTypeSelect.value;
           const ratePerUnitValue = newOpsRatePerUnitInput.value.trim();
-          const categories = newOpsCategoriesContainer
-            ? Array.from(newOpsCategoriesContainer.querySelectorAll('.ops-category-cb:checked')).map(cb => cb.value)
+          const categories = newOpsCategoryPanel
+            ? Array.from(newOpsCategoryPanel.querySelectorAll('.ops-category-cb:checked')).map(cb => cb.value)
             : [];
 
           // Validate required fields
@@ -257,8 +282,9 @@
             newOpsNameInput.value = "";
             newOpsTypeSelect.value = "";
             newOpsRatePerUnitInput.value = "";
-            if (newOpsCategoriesContainer) {
-              newOpsCategoriesContainer.querySelectorAll('.ops-category-cb').forEach(cb => { cb.checked = false; });
+            if (newOpsCategoryPanel) {
+              newOpsCategoryPanel.querySelectorAll('.ops-category-cb').forEach(cb => { cb.checked = false; });
+              updateCategoryTriggerLabel();
             }
 
             setTimeout(() => {
@@ -444,7 +470,10 @@
         }
       }
 
-      loadExistingOperations();
+      (async function init() {
+        await loadCategories();
+        await loadExistingOperations();
+      })();
     </script>
   </body>
   </html>
