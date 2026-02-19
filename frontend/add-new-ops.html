@@ -85,11 +85,11 @@
                   <option value="1/x">1/x</option>
                 </select>
               </div>
-              <div class="field" id="newOpsCategoryField" style="display: flex; flex-direction: column; gap: 6px;">
-                <label>Categories (optional, multi-select)</label>
-                <div class="category-dropdown" id="newOpsCategoryDropdown" style="position: relative;">
-                  <button type="button" class="category-dropdown-trigger" id="newOpsCategoryTrigger" style="min-width: 220px; text-align: left; padding: 8px 12px; border: 1px solid #ccc; border-radius: 4px; background: #fff; cursor: pointer;">Select categories</button>
-                  <div class="category-dropdown-panel" id="newOpsCategoryPanel" style="display: none; position: absolute; top: 100%; left: 0; margin-top: 4px; min-width: 280px; max-height: 220px; overflow-y: auto; background: #fff; border: 1px solid #ccc; border-radius: 4px; box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 100; padding: 8px;"></div>
+              <div class="field" id="newOpsCategoryField">
+                <label for="newOpsCategoryTrigger">Categories (optional, multi-select)</label>
+                <div class="category-dropdown" id="newOpsCategoryDropdown">
+                  <button type="button" class="category-dropdown-trigger" id="newOpsCategoryTrigger">Select categories</button>
+                  <div class="category-dropdown-panel" id="newOpsCategoryPanel" style="display: none;"></div>
                 </div>
               </div>
               <div class="field">
@@ -228,17 +228,24 @@
         }
       }
 
+      function updateRowCategoryTriggerLabel(trigger, panel) {
+        if (!trigger || !panel) return;
+        const n = panel.querySelectorAll('.ops-category-cb:checked').length;
+        trigger.textContent = n === 0 ? 'Select categories' : (n === 1 ? '1 category' : n + ' categories');
+      }
+
       if (newOpsCategoryTrigger && newOpsCategoryPanel) {
         newOpsCategoryTrigger.addEventListener('click', (e) => {
           e.stopPropagation();
           const open = newOpsCategoryPanel.style.display !== 'none';
           newOpsCategoryPanel.style.display = open ? 'none' : 'block';
         });
-        document.addEventListener('click', () => {
-          newOpsCategoryPanel.style.display = 'none';
-        });
         newOpsCategoryPanel.addEventListener('click', (e) => e.stopPropagation());
       }
+      document.addEventListener('click', () => {
+        if (newOpsCategoryPanel) newOpsCategoryPanel.style.display = 'none';
+        document.querySelectorAll('.ops-category-panel').forEach(p => { p.style.display = 'none'; });
+      });
 
       if (
         newOpsNameInput &&
@@ -327,7 +334,10 @@
                   </td>
                   <td>
                     <span class="ops-category-display">${escapeHtml(catDisplay)}</span>
-                    <div class="ops-category-edit" style="display: none; flex-wrap: wrap; gap: 6px 10px; max-width: 280px;">${categoryCheckboxesHtml(cats)}</div>
+                    <div class="ops-category-edit category-dropdown" style="display: none;">
+                      <button type="button" class="category-dropdown-trigger ops-category-trigger">${cats.length === 0 ? 'Select categories' : (cats.length === 1 ? '1 category' : cats.length + ' categories')}</button>
+                      <div class="category-dropdown-panel ops-category-panel" style="display: none;">${categoryCheckboxesHtml(cats)}</div>
+                    </div>
                   </td>
                   <td>
                     <button class="edit-ops-btn" data-id="${op._id}" style="margin-right: 8px;">Edit</button>
@@ -411,6 +421,22 @@
                 addNewOpsWarning.textContent = error.message || 'Failed to delete operation.';
               }
             }
+          });
+        });
+
+        // Row category dropdowns: trigger toggles panel, checkbox change updates trigger label
+        addedOpsBody.querySelectorAll('.ops-category-edit').forEach(editEl => {
+          const trigger = editEl.querySelector('.ops-category-trigger');
+          const panel = editEl.querySelector('.ops-category-panel');
+          if (!trigger || !panel) return;
+          trigger.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const open = panel.style.display !== 'none';
+            panel.style.display = open ? 'none' : 'block';
+          });
+          panel.addEventListener('click', (e) => e.stopPropagation());
+          panel.querySelectorAll('.ops-category-cb').forEach(cb => {
+            cb.addEventListener('change', () => updateRowCategoryTriggerLabel(trigger, panel));
           });
         });
       }
