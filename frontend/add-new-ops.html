@@ -86,19 +86,8 @@
                 </select>
               </div>
               <div class="field" id="newOpsCategoryField" style="display: flex; flex-direction: column; gap: 6px;">
-                <label for="newOpsCategory">Category (optional)</label>
-                <select id="newOpsCategory" name="newOpsCategory" style="min-width: 200px;">
-                  <option value="">— Select category —</option>
-                  <option value="Carton ‐ Side Pasting">Carton ‐ Side Pasting</option>
-                  <option value="Carton ‐ Crashlock | Complex Pasting">Carton ‐ Crashlock | Complex Pasting</option>
-                  <option value="Corrugated Carton ‐ Side Pasting">Corrugated Carton ‐ Side Pasting</option>
-                  <option value="Carton ‐ Tray">Carton ‐ Tray</option>
-                  <option value="Corrugated Carton ‐ Crash Lock | Complex Pasting">Corrugated Carton ‐ Crash Lock | Complex Pasting</option>
-                  <option value="Carton ‐ DK ‐ Crashlock | Complex Pasting">Carton ‐ DK ‐ Crashlock | Complex Pasting</option>
-                  <option value="Unprinted Card">Unprinted Card</option>
-                  <option value="Tags">Tags</option>
-                  <option value="Corrugarted Carton ‐ Tray">Corrugarted Carton ‐ Tray</option>
-                </select>
+                <label>Categories (optional, multi-select)</label>
+                <div id="newOpsCategories" class="ops-categories-checkboxes" style="display: flex; flex-wrap: wrap; gap: 8px 16px; max-height: 120px; overflow-y: auto; padding: 6px 0;"></div>
               </div>
               <div class="field">
                 <label for="newOpsRatePerUnit">Rate/Unit</label>
@@ -199,7 +188,7 @@
       const newOpsNameInput = document.getElementById("newOpsName");
       const newOpsTypeSelect = document.getElementById("newOpsType");
       const newOpsRatePerUnitInput = document.getElementById("newOpsRatePerUnit");
-      const newOpsCategorySelect = document.getElementById("newOpsCategory");
+      const newOpsCategoriesContainer = document.getElementById("newOpsCategories");
       const addNewOpsBtn = document.getElementById("addNewOpsBtn");
       const addNewOpsWarning = document.getElementById("addNewOpsWarning");
       const addedOpsWrapper = document.getElementById("addedOpsWrapper");
@@ -213,13 +202,17 @@
         return div.innerHTML;
       }
 
-      function categoryOptionsHtml(selectedValue) {
-        let html = '<option value="">—</option>';
-        OPERATION_CATEGORIES.forEach(cat => {
-          const sel = (selectedValue === cat) ? ' selected' : '';
-          html += `<option value="${escapeHtml(cat)}"${sel}>${escapeHtml(cat)}</option>`;
-        });
-        return html;
+      function categoryCheckboxesHtml(selectedArr) {
+        const set = new Set(Array.isArray(selectedArr) ? selectedArr : (selectedArr != null && selectedArr !== '' ? [selectedArr] : []));
+        return OPERATION_CATEGORIES.map(cat => {
+          const checked = set.has(cat) ? ' checked' : '';
+          return `<label style="display: flex; align-items: center; gap: 4px; white-space: nowrap;"><input type="checkbox" class="ops-category-cb" value="${escapeHtml(cat)}"${checked}>${escapeHtml(cat)}</label>`;
+        }).join('');
+      }
+
+      // Populate add-form category checkboxes
+      if (newOpsCategoriesContainer) {
+        newOpsCategoriesContainer.innerHTML = categoryCheckboxesHtml([]);
       }
 
       if (
@@ -233,7 +226,9 @@
           const name = newOpsNameInput.value.trim();
           const type = newOpsTypeSelect.value;
           const ratePerUnitValue = newOpsRatePerUnitInput.value.trim();
-          const category = newOpsCategorySelect ? newOpsCategorySelect.value : '';
+          const categories = newOpsCategoriesContainer
+            ? Array.from(newOpsCategoriesContainer.querySelectorAll('.ops-category-cb:checked')).map(cb => cb.value)
+            : [];
 
           // Validate required fields
           if (!name || !type || !ratePerUnitValue || ratePerUnitValue === "") {
@@ -250,8 +245,8 @@
           }
 
           try {
-            const operation = await operationsAPI.create(name, type, ratePerUnit, category);
-          addNewOpsWarning.textContent = "";
+            const operation = await operationsAPI.create(name, type, ratePerUnit, categories);
+            addNewOpsWarning.textContent = "";
             addNewOpsWarning.style.color = "#4ade80";
             addNewOpsWarning.textContent = "Operation added successfully!";
 
@@ -259,10 +254,12 @@
             await loadExistingOperations();
 
             // Clear inputs
-          newOpsNameInput.value = "";
-          newOpsTypeSelect.value = "";
-          newOpsRatePerUnitInput.value = "";
-          if (newOpsCategorySelect) newOpsCategorySelect.value = "";
+            newOpsNameInput.value = "";
+            newOpsTypeSelect.value = "";
+            newOpsRatePerUnitInput.value = "";
+            if (newOpsCategoriesContainer) {
+              newOpsCategoriesContainer.querySelectorAll('.ops-category-cb').forEach(cb => { cb.checked = false; });
+            }
 
             setTimeout(() => {
               addNewOpsWarning.textContent = "";
@@ -282,7 +279,8 @@
             if (operations.length > 0) {
               addedOpsWrapper.style.display = "block";
               addedOpsBody.innerHTML = operations.map(op => {
-                const cat = op.category != null && op.category !== '' ? op.category : '';
+                const cats = Array.isArray(op.categories) ? op.categories : (op.category != null && op.category !== '' ? [op.category] : []);
+                const catDisplay = cats.length ? cats.join(', ') : '—';
                 return `
                 <tr data-id="${op._id}">
                   <td>
@@ -302,8 +300,8 @@
                     <input type="number" class="ops-rate-edit" value="${op.ratePerUnit !== null && op.ratePerUnit !== undefined ? op.ratePerUnit : ''}" step="0.01" min="0" style="display: none; width: 100%;">
                   </td>
                   <td>
-                    <span class="ops-category-display">${escapeHtml(cat) || '—'}</span>
-                    <select class="ops-category-edit" style="display: none; width: 100%;">${categoryOptionsHtml(cat)}</select>
+                    <span class="ops-category-display">${escapeHtml(catDisplay)}</span>
+                    <div class="ops-category-edit" style="display: none; flex-wrap: wrap; gap: 6px 10px; max-width: 280px;">${categoryCheckboxesHtml(cats)}</div>
                   </td>
                   <td>
                     <button class="edit-ops-btn" data-id="${op._id}" style="margin-right: 8px;">Edit</button>
@@ -357,9 +355,12 @@
               nameEdit.focus();
               nameEdit.select();
             } else {
-              // Save mode
-              const catVal = categoryEdit ? categoryEdit.value : '';
-              await saveOpsEdit(opId, nameEdit.value.trim(), typeEdit.value, rateEdit.value.trim(), catVal, row);
+              // Save mode: collect checked categories from row
+              const categoryEditEl = row.querySelector('.ops-category-edit');
+              const newCategories = categoryEditEl
+                ? Array.from(categoryEditEl.querySelectorAll('.ops-category-cb:checked')).map(cb => cb.value)
+                : [];
+              await saveOpsEdit(opId, nameEdit.value.trim(), typeEdit.value, rateEdit.value.trim(), newCategories, row);
             }
           });
         });
@@ -389,7 +390,7 @@
       }
 
       // Save operation edit
-      async function saveOpsEdit(opId, newName, newType, newRatePerUnit, newCategory, row) {
+      async function saveOpsEdit(opId, newName, newType, newRatePerUnit, newCategories, row) {
         if (!newName || !newType) {
           addNewOpsWarning.style.color = '#ef4444';
           addNewOpsWarning.textContent = 'Ops Name and Type are required.';
@@ -403,8 +404,9 @@
           return;
         }
         
+        const categoriesArr = Array.isArray(newCategories) ? newCategories : [];
         try {
-          await operationsAPI.update(opId, newName, newType, ratePerUnit, newCategory || '');
+          await operationsAPI.update(opId, newName, newType, ratePerUnit, categoriesArr);
           const nameDisplay = row.querySelector('.ops-name-display');
           const nameEdit = row.querySelector('.ops-name-edit');
           const typeDisplay = row.querySelector('.ops-type-display');
@@ -425,7 +427,7 @@
           rateDisplay.style.display = 'inline';
           rateEdit.style.display = 'none';
           if (categoryDisplay) {
-            categoryDisplay.textContent = newCategory ? newCategory : '—';
+            categoryDisplay.textContent = categoriesArr.length ? categoriesArr.join(', ') : '—';
             categoryDisplay.style.display = 'inline';
           }
           if (categoryEdit) categoryEdit.style.display = 'none';

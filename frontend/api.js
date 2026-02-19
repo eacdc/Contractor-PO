@@ -96,13 +96,13 @@ export const operationsAPI = {
     return apiCall(`/operations?category=${encodeURIComponent(String(category).trim())}`);
   },
   getById: (id) => apiCall(`/operations/${id}`),
-  create: (opsName, type, ratePerUnit, category) => apiCall('/operations', {
+  create: (opsName, type, ratePerUnit, categories) => apiCall('/operations', {
     method: 'POST',
-    body: { opsName, type, ratePerUnit, category }
+    body: { opsName, type, ratePerUnit, categories: Array.isArray(categories) ? categories : (categories != null && categories !== '' ? [String(categories)] : []) }
   }),
-  update: (id, opsName, type, ratePerUnit, category) => apiCall(`/operations/${id}`, {
+  update: (id, opsName, type, ratePerUnit, categories) => apiCall(`/operations/${id}`, {
     method: 'PUT',
-    body: { opsName, type, ratePerUnit, category }
+    body: { opsName, type, ratePerUnit, categories: Array.isArray(categories) ? categories : (categories != null && categories !== '' ? [String(categories)] : []) }
   }),
   delete: (id) => apiCall(`/operations/${id}`, {
     method: 'DELETE'
