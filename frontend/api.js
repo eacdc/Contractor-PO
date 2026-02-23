@@ -65,7 +65,7 @@ export const jobsAPI = {
     body: { operations }
   }),
   // Save to JobopsMaster (jobid = job number)
-  // extraJobData can include qty, clientName, jobTitle, productCat, unitPrice
+  // extraJobData can include qty, clientName, jobTitle, productCat, segmentName, unitPrice
   saveJobOpsMaster: (jobNumber, operations, extraJobData = {}) => apiCall('/jobs/jobopsmaster', {
     method: 'POST',
     body: { jobNumber, operations, ...extraJobData }

@@ -192,6 +192,8 @@
       // Store clientName and jobTitle per job number
       // Structure: { jobNumber: { clientName: '', jobTitle: '' } }
       let jobDetailsMap = {};
+      // Packaging segment: per operation max "qty to add" = totalQty*0.05 + that op's pending. Key: jobNumber, value: totalQty or null.
+      let jobPackagingTotalQtyMap = {};
 
       // Load all operations on page load
       async function loadOperations() {
@@ -345,10 +347,13 @@
         // Populate operations
         const opsBody = table.querySelector('tbody');
         if (operations && operations.length > 0) {
+          const packagingTotalQty = jobPackagingTotalQtyMap[jobNumber];
           operations.forEach(op => {
             const cachedReduction = pendingQtyCache[jobNumber]?.[op.opId] || 0;
             const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
-            
+            const inputMax = packagingTotalQty != null
+              ? Math.round(packagingTotalQty * 0.05 + adjustedPendingQty)
+              : adjustedPendingQty;
             const row = document.createElement("tr");
             row.innerHTML = `
               <td>${op.opsName || '-'}</td>
@@ -359,7 +364,7 @@
                   type="number"
                   class="work-qty-input"
                   min="0"
-                  max="${adjustedPendingQty}"
+                  max="${inputMax}"
                   step="1"
                   data-op-id="${op.opId}"
                   data-job="${jobNumber}"
@@ -416,17 +421,25 @@
             
             checkAndShowCopyOptions(jobNumber);
             
-            // Also attach validation
+            // Validation: Packaging = cap per op at totalQty*0.05 + pending; non-Packaging = cap at pending
             const row = e.target.closest("tr");
             const pendingCell = row?.querySelector(".pending-cell");
             if (pendingCell) {
               const pending = parseFloat(pendingCell.textContent || "0") || 0;
               let value = parseFloat(e.target.value || "0");
-              if (value > pending) {
-                e.target.value = pending.toString();
+              const packagingTotalQty = jobPackagingTotalQtyMap[jobNumber];
+              const maxForRow = packagingTotalQty != null
+                ? packagingTotalQty * 0.05 + pending
+                : pending;
+              if (value > maxForRow) {
+                e.target.value = String(Math.round(maxForRow));
                 if (workDoneWarning) {
-                  workDoneWarning.textContent = "Entered quantity cannot exceed pending quantity.";
+                  workDoneWarning.textContent = packagingTotalQty != null
+                    ? "Packaging segment: qty to add cannot exceed (total qty × 5% + pending) for this operation. Value limited."
+                    : "Entered quantity cannot exceed pending quantity.";
                 }
+              } else {
+                if (workDoneWarning) workDoneWarning.textContent = "";
               }
             }
           }
@@ -928,6 +941,7 @@
 
           currentContractor = contractor;
           currentJobNumber = jobNumber;
+          jobPackagingTotalQtyMap = {};
 
           try {
             let jobNumbersToLoad = [jobNumber];
@@ -980,6 +994,19 @@
                     };
                   }
                   
+                  // Packaging segment: per-op max = totalQty*0.05 + that op's pending
+                  try {
+                    const jobDetails = await jobsAPI.getJobDetails(jn);
+                    const seg = (jobDetails.segmentName || '').trim();
+                    if (seg === 'Packaging') {
+                      jobPackagingTotalQtyMap[jn] = Number(jobDetails.qty) || 0;
+                    } else {
+                      jobPackagingTotalQtyMap[jn] = null;
+                    }
+                  } catch (_) {
+                    jobPackagingTotalQtyMap[jn] = null;
+                  }
+                  
                   seriesJobs.push({
                     jobNumber: jn,
                     operations: result.operations || []
@@ -1028,17 +1055,32 @@
                 };
               }
 
+              // Packaging segment: per-op max = totalQty*0.05 + that op's pending
+              try {
+                const jobDetails = await jobsAPI.getJobDetails(jobNumber);
+                const seg = (jobDetails.segmentName || '').trim();
+                if (seg === 'Packaging') {
+                  jobPackagingTotalQtyMap[jobNumber] = Number(jobDetails.qty) || 0;
+                } else {
+                  jobPackagingTotalQtyMap[jobNumber] = null;
+                }
+              } catch (_) {
+                jobPackagingTotalQtyMap[jobNumber] = null;
+              }
+
               // Populate table
               if (opsPendingBody) {
                 opsPendingBody.innerHTML = "";
                 
                 if (result.operations && result.operations.length > 0) {
                   currentOperationsData = result.operations;
-                  
+                  const packagingTotalQty = jobPackagingTotalQtyMap[jobNumber];
                   result.operations.forEach(op => {
                     const cachedReduction = pendingQtyCache[jobNumber]?.[op.opId] || 0;
                     const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
-                    
+                    const inputMax = packagingTotalQty != null
+                      ? Math.round(packagingTotalQty * 0.05 + adjustedPendingQty)
+                      : adjustedPendingQty;
                     const row = document.createElement("tr");
                     row.innerHTML = `
                       <td>${op.opsName || '-'}</td>
@@ -1049,9 +1091,10 @@
                           type="number"
                           class="work-qty-input"
                           min="0"
-                          max="${adjustedPendingQty}"
+                          max="${inputMax}"
                           step="1"
                           data-op-id="${op.opId}"
+                          data-job="${jobNumber}"
                           data-value-per-book="${op.valuePerBook || 0}"
                         />
                       </td>
@@ -1082,7 +1125,7 @@
         });
       }
 
-      // Enforce that entered qty is not more than pending qty
+      // Non-Packaging: cap each row at pending. Packaging: cap each row at totalQty*0.05 + that op's pending.
       function attachQtyListeners() {
       document.querySelectorAll(".work-qty-input").forEach((input) => {
         input.addEventListener("input", () => {
@@ -1092,17 +1135,21 @@
 
           const pending = parseFloat(pendingCell.textContent || "0") || 0;
           let value = parseFloat(input.value || "0");
+          const jobNum = input.dataset.job || currentJobNumber;
+          const packagingTotalQty = jobNum ? jobPackagingTotalQtyMap[jobNum] : null;
+          const maxForRow = packagingTotalQty != null
+            ? packagingTotalQty * 0.05 + pending
+            : pending;
 
-          if (value > pending) {
-            input.value = pending.toString();
-              if (workDoneWarning) {
-                workDoneWarning.textContent =
-                "Entered quantity cannot exceed pending quantity. It has been limited to the pending qty.";
+          if (value > maxForRow) {
+            input.value = String(Math.round(maxForRow));
+            if (workDoneWarning) {
+              workDoneWarning.textContent = packagingTotalQty != null
+                ? "Packaging segment: qty to add cannot exceed (total qty × 5% + pending) for this operation. Value limited."
+                : "Entered quantity cannot exceed pending quantity. It has been limited to the pending qty.";
             }
           } else {
-              if (workDoneWarning) {
-                workDoneWarning.textContent = "";
-            }
+            if (workDoneWarning) workDoneWarning.textContent = "";
           }
         });
       });

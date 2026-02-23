@@ -193,6 +193,10 @@
               <input id="productCat" name="productCat" type="text" readonly />
             </div>
             <div class="field">
+              <label for="segmentName">Segment Name</label>
+              <input id="segmentName" name="segmentName" type="text" readonly />
+            </div>
+            <div class="field">
               <label for="unitPrice">Unit Price</label>
               <input id="unitPrice" name="unitPrice" type="text" readonly />
             </div>
@@ -782,6 +786,7 @@
           document.getElementById('jobTitle').value = jobDetails.jobTitle || '';
           document.getElementById('qty').value = jobDetails.qty || 0;
           document.getElementById('productCat').value = jobDetails.productCat || '';
+          document.getElementById('segmentName').value = jobDetails.segmentName || '';
           document.getElementById('unitPrice').value = (jobDetails.unitPrice || 0).toFixed(2);
         } catch (error) {
           console.error('Error fetching job details:', error);
@@ -790,6 +795,7 @@
           document.getElementById('jobTitle').value = '';
           document.getElementById('qty').value = 0;
           document.getElementById('productCat').value = '';
+          document.getElementById('segmentName').value = '';
           document.getElementById('unitPrice').value = '0.00';
         }
       }
@@ -978,6 +984,7 @@
             document.getElementById('jobTitle').value = '';
             document.getElementById('qty').value = 0;
             document.getElementById('productCat').value = '';
+            document.getElementById('segmentName').value = '';
             document.getElementById('unitPrice').value = 0;
           }
 
@@ -1327,6 +1334,7 @@
           const jobTitleInput = document.getElementById('jobTitle');
           const qtyInput = document.getElementById('qty');
           const productCatInput = document.getElementById('productCat');
+          const segmentNameInput = document.getElementById('segmentName');
           const unitPriceInput = document.getElementById('unitPrice');
 
           const extraJobData = {
@@ -1334,6 +1342,7 @@
             jobTitle: jobTitleInput ? jobTitleInput.value : '',
             qty: qtyInput && qtyInput.value ? Number(qtyInput.value) : 0,
             productCat: productCatInput ? productCatInput.value : '',
+            segmentName: segmentNameInput ? segmentNameInput.value : '',
             unitPrice: unitPriceInput && unitPriceInput.value ? Number(unitPriceInput.value) : 0
           };
 
@@ -1350,6 +1359,8 @@
             if (jobTitleInput) jobTitleInput.value = '';
             if (qtyInput) qtyInput.value = '';
             if (productCatInput) productCatInput.value = '';
+            const segmentNameInput = document.getElementById('segmentName');
+            if (segmentNameInput) segmentNameInput.value = '';
             if (unitPriceInput) unitPriceInput.value = '';
 
             // Reset Previous Ops table
@@ -1563,12 +1574,14 @@
         const jobTitleInput = document.getElementById('jobTitle');
         const qtyInput = document.getElementById('qty');
         const productCatInput = document.getElementById('productCat');
+        const segmentNameInput = document.getElementById('segmentName');
         const unitPriceInput = document.getElementById('unitPrice');
         
         if (clientNameInput) clientNameInput.value = '';
         if (jobTitleInput) jobTitleInput.value = '';
         if (qtyInput) qtyInput.value = '';
         if (productCatInput) productCatInput.value = '';
+        if (segmentNameInput) segmentNameInput.value = '';
         if (unitPriceInput) unitPriceInput.value = '';
         
         // Clear previous ops table
@@ -1834,17 +1847,30 @@
       }
 
       // Helper function to add a single job to multiple jobs list
-      async function addJobToMultipleList(jobNumber) {
-        // Check if job already exists
+      // optionalJobDetails: if provided, use it (avoids double fetch when validating batch)
+      async function addJobToMultipleList(jobNumber, optionalJobDetails) {
         if (multipleJobs.some(job => job.jobNumber === jobNumber)) {
-          return false; // Job already exists
+          return false;
         }
 
         try {
-          // Fetch job details
-          const jobDetails = await jobsAPI.getJobDetails(jobNumber);
-          
-          // Create job object
+          const jobDetails = optionalJobDetails || await jobsAPI.getJobDetails(jobNumber);
+          const newIsPackaging = (jobDetails.segmentName || '').trim() === 'Packaging';
+
+          // Don't mix Packaging and commercial jobs in the same series
+          if (multipleJobs.length > 0) {
+            const existingIsPackaging = (multipleJobs[0].jobDetails.segmentName || '').trim() === 'Packaging';
+            if (existingIsPackaging !== newIsPackaging) {
+              if (jobSearchError) {
+                jobSearchError.textContent = existingIsPackaging
+                  ? 'Cannot add a commercial job to a Packaging series. Add only Packaging jobs.'
+                  : 'Cannot add a Packaging job to a commercial series. Add only commercial jobs.';
+                jobSearchError.style.display = 'block';
+              }
+              return false;
+            }
+          }
+
           const jobData = {
             jobNumber,
             jobDetails,
@@ -1852,7 +1878,6 @@
             expanded: false
           };
 
-          // Try to fetch previous ops
           try {
             const result = await jobsAPI.search(jobNumber);
             jobData.previousOps = result.previousOps;
@@ -1860,16 +1885,12 @@
             console.error('Error fetching previous ops:', error);
           }
 
-          // Add to multiple jobs array
           multipleJobs.push(jobData);
-
-          // Create expandable row
           createJobRow(jobData);
-
-          return true; // Successfully added
+          return true;
         } catch (error) {
           console.error(`Error adding job ${jobNumber}:`, error);
-          return false; // Failed to add
+          return false;
         }
       }
 
@@ -1944,8 +1965,37 @@
               }
             }
 
-            // Add all jobs
-            const addPromises = jobsToAdd.map(jn => addJobToMultipleList(jn));
+            // Add all jobs (validate segment type first when adding multiple)
+            let detailsMap = {};
+            if (jobsToAdd.length > 0) {
+              try {
+                const detailsResults = await Promise.all(jobsToAdd.map(jn => jobsAPI.getJobDetails(jn)));
+                jobsToAdd.forEach((jn, i) => { detailsMap[jn] = detailsResults[i]; });
+              } catch (e) {
+                jobSearchError.textContent = 'Error fetching job details. Please check the job number(s).';
+                jobSearchError.style.display = 'block';
+                return;
+              }
+              const newIsPackagingList = jobsToAdd.map(jn => (detailsMap[jn].segmentName || '').trim() === 'Packaging');
+              if (multipleJobs.length > 0) {
+                const existingIsPackaging = (multipleJobs[0].jobDetails.segmentName || '').trim() === 'Packaging';
+                if (newIsPackagingList.some(isP => isP !== existingIsPackaging)) {
+                  jobSearchError.textContent = existingIsPackaging
+                    ? 'Cannot add commercial jobs to a Packaging series. Add only Packaging jobs.'
+                    : 'Cannot add Packaging jobs to a commercial series. Add only commercial jobs.';
+                  jobSearchError.style.display = 'block';
+                  return;
+                }
+              } else {
+                if (newIsPackagingList.some(isP => isP !== newIsPackagingList[0])) {
+                  jobSearchError.textContent = 'Cannot mix Packaging and commercial jobs in a series. Add only one type.';
+                  jobSearchError.style.display = 'block';
+                  return;
+                }
+              }
+            }
+
+            const addPromises = jobsToAdd.map(jn => addJobToMultipleList(jn, detailsMap[jn]));
             const results = await Promise.all(addPromises);
             const successCount = results.filter(r => r === true).length;
 
@@ -2051,6 +2101,10 @@
           <div class="field">
             <label>Product Cat</label>
             <input type="text" value="${jobData.jobDetails.productCat || ''}" readonly />
+          </div>
+          <div class="field">
+            <label>Segment Name</label>
+            <input type="text" value="${jobData.jobDetails.segmentName || ''}" readonly />
           </div>
           <div class="field">
             <label>Unit Price</label>
@@ -2639,6 +2693,7 @@
               jobTitle: jobData.jobDetails.jobTitle || '',
               qty: jobData.jobDetails.qty || 0,
               productCat: jobData.jobDetails.productCat || '',
+              segmentName: jobData.jobDetails.segmentName || '',
               unitPrice: jobData.jobDetails.unitPrice || 0
             };
             
