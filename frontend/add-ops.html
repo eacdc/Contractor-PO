@@ -2240,20 +2240,19 @@
       }
 
       // Initialize common Add New Ops section for multiple jobs
-      function initializeMultipleJobsAddOpsSection() {
+      async function initializeMultipleJobsAddOpsSection() {
         const opsBody = document.getElementById('multipleJobsAddOpsBody');
         if (!opsBody) return;
         
         // Ensure operations are loaded
         if (allOperations.length === 0) {
-          // Operations not loaded yet, wait a bit and try again
           setTimeout(() => {
             initializeMultipleJobsAddOpsSection();
           }, 200);
           return;
         }
         
-        // Clear and create initial row if needed
+        // Clear and create initial row if needed (template for structure)
         if (opsBody.children.length === 0) {
           const baseRow = document.createElement('tr');
           baseRow.classList.add('ops-row');
@@ -2276,8 +2275,59 @@
           `;
           opsBody.appendChild(baseRow);
         }
-        
-        // Datalist is already populated globally, no need to do anything here
+
+        // Populate ops by product category only when all jobs have the same product category (same as single-job Add New Ops)
+        const productCats = multipleJobs.map(j => (j.jobDetails?.productCat || '').trim());
+        const allSameProductCat = productCats.length > 0 && productCats.every(c => c === productCats[0]);
+        const productCat = allSameProductCat ? productCats[0] : '';
+        if (productCat) {
+          try {
+            const byCategory = await operationsAPI.getByCategory(productCat);
+            const oneToOneOps = (byCategory || []).filter(op => op.type === '1:1');
+            const existingOpIds = new Set();
+            multipleJobs.forEach(j => {
+              (j.previousOps?.operations || []).forEach(op => {
+                if (op.opsId != null) existingOpIds.add(String(op.opsId));
+              });
+            });
+            const toAdd = oneToOneOps.filter(op => !existingOpIds.has(String(op._id)));
+            if (toAdd.length > 0) {
+              const templateRow = opsBody.querySelector('tr.ops-row');
+              if (templateRow) {
+                const templateClone = templateRow.cloneNode(true);
+                opsBody.innerHTML = '';
+                toAdd.forEach((op) => {
+                  const clone = templateClone.cloneNode(true);
+                  const opsInput = clone.querySelector('input[name="opsName"]');
+                  const qtyInput = clone.querySelector('input[name="qtyBook"]');
+                  const rateInput = clone.querySelector('input[name="rate"]');
+                  const rateBookInput = clone.querySelector('input[name="rateBook"]');
+                  if (opsInput) opsInput.value = op.opsName || '';
+                  if (qtyInput) { qtyInput.value = '1'; qtyInput.readOnly = true; }
+                  if (rateInput) { rateInput.value = Number(op.ratePerUnit || 0).toFixed(4); rateInput.readOnly = true; }
+                  if (rateBookInput) {
+                    const ratePerUnit = Number(op.ratePerUnit || 0);
+                    rateBookInput.value = (1 * ratePerUnit).toFixed(4);
+                    rateBookInput.readOnly = true;
+                  }
+                  opsBody.appendChild(clone);
+                });
+                const emptyRow = templateClone.cloneNode(true);
+                const eOps = emptyRow.querySelector('input[name="opsName"]');
+                const eQty = emptyRow.querySelector('input[name="qtyBook"]');
+                const eRate = emptyRow.querySelector('input[name="rate"]');
+                const eRateBook = emptyRow.querySelector('input[name="rateBook"]');
+                if (eOps) eOps.value = '';
+                if (eQty) { eQty.value = ''; eQty.readOnly = false; }
+                if (eRate) { eRate.value = '1'; eRate.readOnly = true; }
+                if (eRateBook) { eRateBook.value = '1'; eRateBook.readOnly = true; }
+                opsBody.appendChild(emptyRow);
+              }
+            }
+          } catch (err) {
+            console.error('Error populating multiple jobs ops from category:', err);
+          }
+        }
       }
       
       // Create add ops section for a job (no longer used, kept for reference)
