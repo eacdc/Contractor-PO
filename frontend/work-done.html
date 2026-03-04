@@ -1453,7 +1453,7 @@
             row.innerHTML = `
               <td>${item.jobNumber}</td>
               <td>${item.opsName}</td>
-              <td>${item.qtyBook}</td>
+              <td>${Number(item.qtyBook ?? 0).toFixed(4)}</td>
               <td>${(item.valuePerBook || 0).toFixed(4)}</td>
               <td>${item.qtyCompleted}</td>
               <td>${item.totalValue.toFixed(2)}</td>
