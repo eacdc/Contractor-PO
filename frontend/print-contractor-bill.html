@@ -195,32 +195,34 @@
         const colWidths = colRatios.map(r => r * tableWidth);
         const colX = [margin];
         for (let i = 1; i < colHeaders.length; i++) colX.push(colX[i - 1] + colWidths[i - 1]);
-        const rowHeight = 9;
+        // Line item font and row height ~50% of original so 20–30 rows fit per page
+        const rowHeight = 2.5;
+        const lineItemFontSize = 2.5;
+        const lineHeight = 1.25;
 
         function drawTableHeader(y) {
           doc.setFillColor(79, 70, 229);
           doc.rect(margin, y, tableWidth, rowHeight, 'F');
           doc.setFont(undefined, 'bold');
-          doc.setFontSize(10);
+          doc.setFontSize(lineItemFontSize);
           doc.setTextColor(255, 255, 255);
           colHeaders.forEach((header, i) => {
-            doc.text(header, colX[i] + colWidths[i] / 2, y + rowHeight - 2.5, { align: 'center' });
+            doc.text(header, colX[i] + colWidths[i] / 2, y + rowHeight - 0.6, { align: 'center' });
           });
           return y + rowHeight;
         }
 
         function drawTableRow(y, values, isAlt) {
           doc.setFont(undefined, 'normal');
-          doc.setFontSize(9);
-          const padding = 6;
+          doc.setFontSize(lineItemFontSize);
+          const padding = 2;
           const wrappedTexts = values.map((val, i) => {
             const text = String(val || '');
             if (i === 1 || i === 2 || i === 3) return doc.splitTextToSize(text, colWidths[i] - padding);
             return [text];
           });
           const maxLines = Math.max(...wrappedTexts.map(lines => lines.length));
-          const lineHeight = 4.5;
-          const actualRowHeight = Math.max(9, maxLines * lineHeight);
+          const actualRowHeight = Math.max(rowHeight, maxLines * lineHeight);
           if (isAlt) {
             doc.setFillColor(245, 245, 250);
             doc.rect(margin, y, tableWidth, actualRowHeight, 'F');
@@ -333,10 +335,25 @@
         }
       }
 
+      /** Add "Page X of Y" to every page of the document. Call once after all content, before doc.save(). */
+      function addPageNumbers(doc) {
+        const totalPages = doc.internal.getNumberOfPages();
+        const pageWidth = doc.internal.pageSize.getWidth();
+        const pageHeight = doc.internal.pageSize.getHeight();
+        doc.setFont(undefined, 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(100, 100, 100);
+        for (let p = 1; p <= totalPages; p++) {
+          doc.setPage(p);
+          doc.text(`Page ${p} of ${totalPages}`, pageWidth / 2, pageHeight - 8, { align: 'center' });
+        }
+      }
+
       async function generateBillPDF(bill) {
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF('landscape', 'mm', 'a4');
         addBillContentToPDF(doc, bill);
+        addPageNumbers(doc);
         doc.save(`Bill_${bill.billNumber}.pdf`);
       }
 
@@ -381,6 +398,7 @@
         doc.setFontSize(8);
         doc.setTextColor(150, 150, 150);
         doc.text('CDC Printers Pvt Ltd', pageWidth / 2, pageHeight - 5, { align: 'center' });
+        addPageNumbers(doc);
         doc.save('Bills_selected.pdf');
       }
 
