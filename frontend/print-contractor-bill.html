@@ -196,9 +196,9 @@
         const colX = [margin];
         for (let i = 1; i < colHeaders.length; i++) colX.push(colX[i - 1] + colWidths[i - 1]);
         // Line item font and row height ~50% of original so 20–30 rows fit per page
-        const rowHeight = 2.5;
-        const lineItemFontSize = 2.5;
-        const lineHeight = 1.25;
+        const rowHeight = 5;
+        const lineItemFontSize = 7;
+        const lineHeight = 3;
 
         function drawTableHeader(y) {
           doc.setFillColor(79, 70, 229);
@@ -253,7 +253,7 @@
 
         (bill.jobs || []).forEach((job) => {
           (job.ops || []).forEach((op, opIndex) => {
-            if (yPos > pageHeight - 50) {
+            if (yPos > pageHeight - 18) {
               doc.setDrawColor(79, 70, 229);
               doc.setLineWidth(0.3);
               doc.rect(margin, currentTableStartY, tableWidth, yPos - currentTableStartY);
@@ -284,13 +284,13 @@
 
         const roomRent = Number(bill.roomRent || 0);
         const grandTotal = billAmount + roomRent;
-        yPos += 8;
+        yPos += 4;
 
         // Separator line above combined total
         doc.setDrawColor(180, 180, 180);
         doc.setLineWidth(0.3);
         doc.line(margin, yPos, pageWidth - margin, yPos);
-        yPos += 6;
+        yPos += 3;
 
         if (roomRent > 0) {
           doc.setFont(undefined, 'normal');
@@ -298,40 +298,40 @@
           doc.setTextColor(60, 60, 60);
           doc.text('Bill Amount:', pageWidth - margin - 100, yPos + 4, { align: 'right' });
           doc.text(billAmount.toFixed(2), pageWidth - margin - 3, yPos + 4, { align: 'right' });
-          yPos += 6;
+          yPos += 3;
           doc.text('Room Rent:', pageWidth - margin - 100, yPos + 4, { align: 'right' });
           doc.text(roomRent.toFixed(2), pageWidth - margin - 3, yPos + 4, { align: 'right' });
-          yPos += 6;
+          yPos += 3;
           doc.setDrawColor(200, 200, 200);
           doc.setLineWidth(0.2);
           doc.line(pageWidth - margin - 100, yPos, pageWidth - margin, yPos);
-          yPos += 5;
+          yPos += 2.5;
         }
 
         // Grand total at end of bill
         doc.setFillColor(240, 240, 245);
-        doc.rect(pageWidth - margin - 100, yPos, 100, 12, 'F');
+        doc.rect(pageWidth - margin - 100, yPos, 100, 10, 'F');
         doc.setDrawColor(79, 70, 229);
         doc.setLineWidth(0.3);
-        doc.rect(pageWidth - margin - 100, yPos, 100, 12);
+        doc.rect(pageWidth - margin - 100, yPos, 100, 10);
         doc.setFont(undefined, 'bold');
         doc.setFontSize(11);
         doc.setTextColor(40, 40, 40);
-        doc.text('Grand Total:', pageWidth - margin - 55, yPos + 8, { align: 'right' });
-        doc.text(grandTotal.toFixed(2), pageWidth - margin - 3, yPos + 8, { align: 'right' });
+        doc.text('Grand Total:', pageWidth - margin - 55, yPos + 6, { align: 'right' });
+        doc.text(grandTotal.toFixed(2), pageWidth - margin - 3, yPos + 6, { align: 'right' });
 
         if (includeSignature) {
-          const sigY = pageHeight - 25;
+          const sigY = yPos + 10 + 6;
           doc.setDrawColor(100, 100, 100);
           doc.setLineWidth(0.2);
           doc.line(pageWidth - margin - 70, sigY, pageWidth - margin, sigY);
           doc.setFont(undefined, 'normal');
           doc.setFontSize(9);
           doc.setTextColor(100, 100, 100);
-          doc.text('Authorized Signature', pageWidth - margin - 35, sigY + 5, { align: 'center' });
+          doc.text('Authorized Signature', pageWidth - margin - 35, sigY + 4, { align: 'center' });
           doc.setFontSize(8);
           doc.setTextColor(150, 150, 150);
-          doc.text('CDC Printers Pvt Ltd', pageWidth / 2, pageHeight - 5, { align: 'center' });
+          doc.text('CDC Printers Pvt Ltd', pageWidth / 2, sigY + 10, { align: 'center' });
         }
       }
 

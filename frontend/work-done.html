@@ -199,14 +199,8 @@
       async function loadOperations() {
         try {
           allOperations = await operationsAPI.getAll();
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:182',message:'Operations loaded',data:{count:allOperations?.length,firstOp:allOperations?.[0]?._id,firstOpType:allOperations?.[0]?.type},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
         } catch (error) {
           console.error('Error loading operations:', error);
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:184',message:'Error loading operations',data:{error:error.message},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-          // #endregion
         }
       }
 
@@ -451,9 +445,6 @@
 
       // Attach copy checkbox listeners
       function attachCopyListeners(jobNumber, jobRow) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:410',message:'attachCopyListeners called',data:{jobNumber,hasJobRow:!!jobRow},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         
         // If jobRow is not provided, try to find it
         if (!jobRow) {
@@ -461,17 +452,11 @@
         }
         
         if (!jobRow) {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:413',message:'jobRow not found',data:{jobNumber},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-          // #endregion
           return;
         }
         
         // Check if listeners are already attached to avoid duplicates
         if (jobRow.dataset.copyListenersAttached === 'true') {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:416',message:'listeners already attached',data:{jobNumber},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-          // #endregion
           return;
         }
         jobRow.dataset.copyListenersAttached = 'true';
@@ -481,8 +466,6 @@
         const copyToSelected = jobRow.querySelector(`.copy-to-selected-checkbox[data-job="${jobNumber}"]`);
         
         // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:425',message:'checkboxes found',data:{jobNumber,hasCopyToAll:!!copyToAll,hasCopyToSelected:!!copyToSelected},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-        // #endregion
         
         if (!copyToAll || !copyToSelected) return;
         
@@ -491,16 +474,9 @@
         
         // Handle "Copy to All" checkbox change event - ensure mutual exclusivity
         copyToAll.addEventListener('change', function(e) {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:485',message:'copyToAll change fired',data:{jobNumber,thisChecked:this.checked,copyToSelectedChecked:copyToSelected?.checked,isUncheckingOther},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'D'})}).catch(()=>{});
-          // #endregion
-          
           if (this.checked) {
             // This checkbox is being checked - ensure the other is unchecked
             if (copyToSelected && copyToSelected.checked && !isUncheckingOther) {
-              // #region agent log
-              fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:491',message:'unchecking copyToSelected in copyToAll change',data:{jobNumber},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'D'})}).catch(()=>{});
-              // #endregion
               isUncheckingOther = true;
               copyToSelected.checked = false;
               // Don't dispatch change event on copyToSelected to avoid recursion
@@ -521,25 +497,13 @@
             });
           }
           
-          // #region agent log
-          setTimeout(() => {
-            fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:512',message:'copyToAll change final state',data:{jobNumber,copyToAllChecked:copyToAll.checked,copyToSelectedChecked:copyToSelected.checked,bothChecked:copyToAll.checked&&copyToSelected.checked},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'D'})}).catch(()=>{});
-          }, 10);
-          // #endregion
         });
         
         // Handle "Copy to Selected" checkbox change event - ensure mutual exclusivity
         copyToSelected.addEventListener('change', function(e) {
-          // #region agent log
-          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:520',message:'copyToSelected change fired',data:{jobNumber,thisChecked:this.checked,copyToAllChecked:copyToAll?.checked,isUncheckingOther},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'D'})}).catch(()=>{});
-          // #endregion
-          
           if (this.checked) {
             // This checkbox is being checked - ensure the other is unchecked
             if (copyToAll && copyToAll.checked && !isUncheckingOther) {
-              // #region agent log
-              fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:526',message:'unchecking copyToAll in copyToSelected change',data:{jobNumber},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'D'})}).catch(()=>{});
-              // #endregion
               isUncheckingOther = true;
               copyToAll.checked = false;
               // Don't dispatch change event on copyToAll to avoid recursion
@@ -560,11 +524,6 @@
             });
           }
           
-          // #region agent log
-          setTimeout(() => {
-            fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:543',message:'copyToSelected change final state',data:{jobNumber,copyToAllChecked:copyToAll.checked,copyToSelectedChecked:copyToSelected.checked,bothChecked:copyToAll.checked&&copyToSelected.checked},timestamp:Date.now(),sessionId:'debug-session',runId:'run3',hypothesisId:'D'})}).catch(()=>{});
-          }, 10);
-          // #endregion
         });
         
       }
@@ -1099,9 +1058,6 @@
                         />
                       </td>
                     `;
-                    // #region agent log
-                    fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:1062',message:'DOM input valuePerBook',data:{opsName:op.opsName,opId:op.opId,valuePerBook:op.valuePerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-                    // #endregion
                     opsPendingBody.appendChild(row);
                   });
 
@@ -1216,9 +1172,6 @@
                 return;
               }
               
-              // #region agent log
-              fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'work-done.html:1170',message:'Adding to billData',data:{opsName:op.opsName,opId:op.opId,valuePerBook:op.valuePerBook,qtyPerBook:op.qtyPerBook},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-              // #endregion
               
               billData.push({
                 jobNumber: currentJobNumber,

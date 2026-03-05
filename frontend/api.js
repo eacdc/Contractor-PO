@@ -1,9 +1,7 @@
 // API Configuration
-// Automatically detect environment: use production URL if not on localhost
-// Points to contractor-po backend in main backend folder
 const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:3000/api'  // Local: contractor-po backend runs on port 3000
-  : 'https://contractor-po-backend.onrender.com/api';  // Production: contractor-po backend subfolder
+  ? 'http://localhost:3000/api'
+  : 'https://contractor-po-backend.onrender.com/api';
 
 // Helper function for API calls
 async function apiCall(endpoint, options = {}) {
