@@ -1175,13 +1175,14 @@
               
               billData.push({
                 jobNumber: currentJobNumber,
-                opId: op.opId, // Store opId for updating JobOpsMaster and Contractor_WD
+                opId: op.opId,
                 opsName: opsName.trim(),
                 qtyBook: op.qtyPerBook || 0,
-                rate: op.rate || 0, // Keep rate for backward compatibility if needed
+                rate: op.rate || 0,
                 qtyCompleted: qtyCompleted,
                 totalValue: totalValue,
-                valuePerBook: valuePerBook // Store valuePerBook for matching and display
+                valuePerBook: valuePerBook,
+                pendingOpsQty: op.pendingOpsQty || 0
               });
               
               hasUnsavedBillData = true;
@@ -1298,10 +1299,11 @@
                 opId: op.opId,
                 opsName: opsName.trim(),
                 qtyBook: op.qtyPerBook || 0,
-                rate: op.rate || 0, // Keep rate for backward compatibility if needed
+                rate: op.rate || 0,
                 qtyCompleted: qtyCompleted,
                 totalValue: totalValue,
-                valuePerBook: valuePerBook // Store valuePerBook for matching and display
+                valuePerBook: valuePerBook,
+                pendingOpsQty: op.pendingOpsQty || 0
               });
                 
                 totalOperationsAdded++;
@@ -1399,7 +1401,8 @@
               return;
             }
             
-            totalValueSum += item.totalValue;
+            const totalValue = Number(item.totalValue) || 0;
+            totalValueSum += totalValue;
             
             const row = document.createElement("tr");
             row.setAttribute('data-bill-index', index);
@@ -1407,9 +1410,9 @@
               <td>${item.jobNumber}</td>
               <td>${item.opsName}</td>
               <td>${Number(item.qtyBook ?? 0).toFixed(4)}</td>
-              <td>${(item.valuePerBook || 0).toFixed(4)}</td>
+              <td>${(Number(item.valuePerBook) || 0).toFixed(4)}</td>
               <td>${item.qtyCompleted}</td>
-              <td>${item.totalValue.toFixed(2)}</td>
+              <td>${totalValue.toFixed(2)}</td>
               <td>
                 <button class="secondary-btn primary-btn--sm" type="button" data-delete-index="${index}" style="background-color: #ef4444; color: white; border: 1px solid #dc2626; padding: 7px 16px; cursor: pointer;">
                   Delete
@@ -1473,56 +1476,30 @@
           }
         }
 
-        // Update pending quantity display in operations table
-        // For single job mode
-        if (!isSeriesMode && currentJobNumber === jobNumber) {
-          const opsRows = opsPendingBody?.querySelectorAll('tr');
-          if (opsRows) {
-            opsRows.forEach(row => {
-              const input = row.querySelector(`.work-qty-input[data-op-id="${opId}"]`);
-              if (input) {
-                const pendingCell = row.querySelector('.pending-cell');
-                if (pendingCell) {
-                  // Get original pending qty from the operation data
-                  const op = currentOperationsData.find(o => o.opId === opId);
-                  if (op) {
-                    const cachedReduction = pendingQtyCache[jobNumber]?.[opId] || 0;
-                    const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
-                    pendingCell.textContent = adjustedPendingQty;
-                    input.max = adjustedPendingQty;
-                  }
-                }
+        // Update pending quantity display in operations table.
+        // Use the originalPendingOpsQty stored on the item to avoid stale lookups in
+        // currentOperationsData or seriesJobs, and use a unified query that works for
+        // both single-job and series mode.
+        try {
+          const originalPendingOpsQty = Number(item.pendingOpsQty) || 0;
+          const cachedReduction = pendingQtyCache[jobNumber]?.[opId] || 0;
+          const adjustedPendingQty = Math.max(0, originalPendingOpsQty - cachedReduction);
+
+          const matchingInputs = document.querySelectorAll(
+            `.work-qty-input[data-op-id="${opId}"][data-job="${jobNumber}"]`
+          );
+          matchingInputs.forEach(input => {
+            const row = input.closest('tr');
+            if (row) {
+              const pendingCell = row.querySelector('.pending-cell');
+              if (pendingCell) {
+                pendingCell.textContent = adjustedPendingQty;
+                input.max = adjustedPendingQty;
               }
-            });
-          }
-        } else if (isSeriesMode) {
-          // For series mode - update the specific job row
-          const jobRow = document.querySelector(`[data-job-number="${jobNumber}"]`);
-          if (jobRow) {
-            const opsBody = jobRow.querySelector(`tbody#ops-body-${jobNumber}`);
-            if (opsBody) {
-              const opsRows = opsBody.querySelectorAll('tr');
-              opsRows.forEach(row => {
-                const input = row.querySelector(`.work-qty-input[data-op-id="${opId}"][data-job="${jobNumber}"]`);
-                if (input) {
-                  const pendingCell = row.querySelector('.pending-cell');
-                  if (pendingCell) {
-                    // Find the operation in seriesJobs
-                    const jobData = seriesJobs.find(j => j.jobNumber === jobNumber);
-                    if (jobData) {
-                      const op = jobData.operations.find(o => o.opId === opId);
-                      if (op) {
-                        const cachedReduction = pendingQtyCache[jobNumber]?.[opId] || 0;
-                        const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
-                        pendingCell.textContent = adjustedPendingQty;
-                        input.max = adjustedPendingQty;
-                      }
-                    }
-                  }
-                }
-              });
             }
-          }
+          });
+        } catch (uiErr) {
+          console.warn('Could not update pending qty display after delete:', uiErr);
         }
 
         // Refresh bill table
@@ -1546,8 +1523,9 @@
       // Event delegation for delete buttons
       if (billTableBody) {
         billTableBody.addEventListener('click', (e) => {
-          if (e.target.hasAttribute('data-delete-index')) {
-            const index = parseInt(e.target.getAttribute('data-delete-index'));
+          const btn = e.target.closest('[data-delete-index]');
+          if (btn) {
+            const index = parseInt(btn.getAttribute('data-delete-index'));
             deleteBillRow(index);
           }
         });

@@ -1,7 +1,7 @@
 // API Configuration
 const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:3000/api'
-  : 'https://contractor-po-backend.onrender.com/api';
+  ? 'http://localhost:3001/api'
+  : 'https://cdcapi.onrender.com/api';
 
 // Helper function for API calls
 async function apiCall(endpoint, options = {}) {

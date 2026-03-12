@@ -157,24 +157,29 @@
        * @param {object} doc - jsPDF instance
        * @param {object} bill - bill data
        * @param {boolean} includeSignature - if false, skip Authorized Signature and footer (use for combined PDF so signature is only on last page)
+       * @param {number|null} startY - optional Y position to start drawing (for combined PDF to continue on same page). If null, starts at margin.
+       * @param {boolean} skipMainTitle - if true, do not draw "CONTRACTOR BILL" and top line (one title per PDF when combined).
+       * @returns {number} - the Y position after the last drawn content (so next bill or content can start after it)
        */
-      function addBillContentToPDF(doc, bill, includeSignature = true) {
+      function addBillContentToPDF(doc, bill, includeSignature = true, startY = null, skipMainTitle = false) {
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
         const margin = 15;
         const tableWidth = pageWidth - (2 * margin);
-        let yPos = margin;
+        const footerReserve = 18;
+        let yPos = startY !== null && startY >= margin ? startY : margin;
 
-        doc.setFontSize(22);
-        doc.setFont(undefined, 'bold');
-        doc.setTextColor(40, 40, 40);
-        doc.text('CONTRACTOR BILL', pageWidth / 2, yPos, { align: 'center' });
-        yPos += 12;
-
-        doc.setDrawColor(79, 70, 229);
-        doc.setLineWidth(0.8);
-        doc.line(margin, yPos, pageWidth - margin, yPos);
-        yPos += 10;
+        if (!skipMainTitle) {
+          doc.setFontSize(22);
+          doc.setFont(undefined, 'bold');
+          doc.setTextColor(40, 40, 40);
+          doc.text('CONTRACTOR BILL', pageWidth / 2, yPos, { align: 'center' });
+          yPos += 12;
+          doc.setDrawColor(79, 70, 229);
+          doc.setLineWidth(0.8);
+          doc.line(margin, yPos, pageWidth - margin, yPos);
+          yPos += 10;
+        }
 
         doc.setFontSize(11);
         doc.setFont(undefined, 'normal');
@@ -195,10 +200,17 @@
         const colWidths = colRatios.map(r => r * tableWidth);
         const colX = [margin];
         for (let i = 1; i < colHeaders.length; i++) colX.push(colX[i - 1] + colWidths[i - 1]);
-        // Line item font and row height ~50% of original so 20–30 rows fit per page
         const rowHeight = 5;
         const lineItemFontSize = 7;
         const lineHeight = 3;
+
+        function drawContinuationHeader(y) {
+          doc.setFont(undefined, 'normal');
+          doc.setFontSize(9);
+          doc.setTextColor(80, 80, 80);
+          doc.text(`Continuation — Bill No: ${bill.billNumber}  |  Contractor: ${bill.contractorName}`, margin, y);
+          return y + 6;
+        }
 
         function drawTableHeader(y) {
           doc.setFillColor(79, 70, 229);
@@ -253,12 +265,13 @@
 
         (bill.jobs || []).forEach((job) => {
           (job.ops || []).forEach((op, opIndex) => {
-            if (yPos > pageHeight - 18) {
+            if (yPos > pageHeight - footerReserve) {
               doc.setDrawColor(79, 70, 229);
               doc.setLineWidth(0.3);
               doc.rect(margin, currentTableStartY, tableWidth, yPos - currentTableStartY);
               doc.addPage('landscape');
               yPos = margin;
+              yPos = drawContinuationHeader(yPos);
               yPos = drawTableHeader(yPos);
               currentTableStartY = yPos - rowHeight;
             }
@@ -268,7 +281,6 @@
             const total = Number(op.totalValue || 0);
             billAmount += total;
             const operationName = op.opsName || op.operationName || op.name || `Op ${opIndex + 1}`;
-            // Every row shows full job details (one job + one operation per row, no merged cells)
             const jobNumberText = job.jobNumber || '';
             const clientNameText = job.clientName || '';
             const jobTitleText = job.jobTitle || '';
@@ -284,9 +296,14 @@
 
         const roomRent = Number(bill.roomRent || 0);
         const grandTotal = billAmount + roomRent;
+        const spaceNeededForTotals = 35;
+        if (yPos + spaceNeededForTotals > pageHeight - footerReserve) {
+          doc.addPage('landscape');
+          yPos = margin;
+          yPos = drawContinuationHeader(yPos);
+        }
         yPos += 4;
 
-        // Separator line above combined total
         doc.setDrawColor(180, 180, 180);
         doc.setLineWidth(0.3);
         doc.line(margin, yPos, pageWidth - margin, yPos);
@@ -308,7 +325,6 @@
           yPos += 2.5;
         }
 
-        // Grand total at end of bill
         doc.setFillColor(240, 240, 245);
         doc.rect(pageWidth - margin - 100, yPos, 100, 10, 'F');
         doc.setDrawColor(79, 70, 229);
@@ -319,9 +335,10 @@
         doc.setTextColor(40, 40, 40);
         doc.text('Grand Total:', pageWidth - margin - 55, yPos + 6, { align: 'right' });
         doc.text(grandTotal.toFixed(2), pageWidth - margin - 3, yPos + 6, { align: 'right' });
+        yPos += 10;
 
         if (includeSignature) {
-          const sigY = yPos + 10 + 6;
+          const sigY = yPos + 6;
           doc.setDrawColor(100, 100, 100);
           doc.setLineWidth(0.2);
           doc.line(pageWidth - margin - 70, sigY, pageWidth - margin, sigY);
@@ -332,7 +349,10 @@
           doc.setFontSize(8);
           doc.setTextColor(150, 150, 150);
           doc.text('CDC Printers Pvt Ltd', pageWidth / 2, sigY + 10, { align: 'center' });
+          yPos = sigY + 14;
         }
+
+        return yPos;
       }
 
       /** Add "Page X of Y" to every page of the document. Call once after all content, before doc.save(). */
@@ -361,17 +381,40 @@
         if (!bills || bills.length === 0) return;
         const { jsPDF } = window.jspdf;
         const doc = new jsPDF('landscape', 'mm', 'a4');
-        bills.forEach((bill, i) => {
-          if (i > 0) doc.addPage('landscape');
-          addBillContentToPDF(doc, bill, false); // no signature per bill; only on last page
-        });
-        // Combined total = sum of all selected bills' grand totals (last page only)
-        const combinedTotal = bills.reduce((sum, bill) => sum + calculateBillTotal(bill), 0);
-        doc.addPage('landscape');
         const pageWidth = doc.internal.pageSize.getWidth();
         const pageHeight = doc.internal.pageSize.getHeight();
         const margin = 15;
-        let yPos = margin + 30;
+        const footerReserve = 18;
+        const minSpaceForNewBill = 55;
+        const minSpaceForCombinedTotal = 55;
+        let yPos = margin;
+
+        doc.setFontSize(22);
+        doc.setFont(undefined, 'bold');
+        doc.setTextColor(40, 40, 40);
+        doc.text('CONTRACTOR BILL', pageWidth / 2, yPos, { align: 'center' });
+        yPos += 12;
+        doc.setDrawColor(79, 70, 229);
+        doc.setLineWidth(0.8);
+        doc.line(margin, yPos, pageWidth - margin, yPos);
+        yPos += 10;
+
+        bills.forEach((bill) => {
+          if (yPos + minSpaceForNewBill > pageHeight - footerReserve) {
+            doc.addPage('landscape');
+            yPos = margin;
+          }
+          yPos = addBillContentToPDF(doc, bill, false, yPos, true);
+          yPos += 10;
+        });
+
+        const combinedTotal = bills.reduce((sum, bill) => sum + calculateBillTotal(bill), 0);
+        if (yPos + minSpaceForCombinedTotal > pageHeight - footerReserve) {
+          doc.addPage('landscape');
+          yPos = margin + 30;
+        } else {
+          yPos += 8;
+        }
         doc.setDrawColor(180, 180, 180);
         doc.setLineWidth(0.3);
         doc.line(margin, yPos, pageWidth - margin, yPos);
@@ -386,7 +429,6 @@
         doc.setTextColor(40, 40, 40);
         doc.text('Combined Total:', pageWidth - margin - 70, yPos + 9, { align: 'right' });
         doc.text(combinedTotal.toFixed(2), pageWidth - margin - 3, yPos + 9, { align: 'right' });
-        // Authorized Signature and footer only on this last page
         const sigY = pageHeight - 25;
         doc.setDrawColor(100, 100, 100);
         doc.setLineWidth(0.2);

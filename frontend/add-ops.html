@@ -427,37 +427,18 @@
 
       // Helper: Find operation by name or ID
       function findOperationByNameOrId(value) {
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'add-ops.html:307',message:'findOperationByNameOrId ENTRY',data:{searchValue:value,allOpsCount:allOperations?.length,allOpsNames:allOperations?.map(o=>o.opsName)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
         if (!value) return null;
         
         // First try to find by ID (normalize to string for comparison)
         const valueStr = String(value);
         let operation = allOperations.find(op => String(op._id) === valueStr);
         
-        // #region agent log
-        if (operation) {
-          fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'add-ops.html:312',message:'Found by ID',data:{searchValue:value,foundOpsName:operation.opsName},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-        }
-        // #endregion
-        
         // If not found by ID, try to find by name (case-insensitive)
         if (!operation) {
           const valueTrimmed = value.trim();
           operation = allOperations.find(op => op.opsName.toLowerCase() === valueTrimmed.toLowerCase());
-          // #region agent log
-          if (operation) {
-            fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'add-ops.html:316',message:'Found by name (case-insensitive)',data:{searchValue:value,foundOpsName:operation.opsName,dbOpsName:operation.opsName},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-          } else {
-            fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'add-ops.html:316',message:'NOT FOUND by name',data:{searchValue:value,allOpsNames:allOperations?.map(o=>o.opsName)},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-          }
-          // #endregion
         }
         
-        // #region agent log
-        fetch('http://127.0.0.1:7243/ingest/3a23d043-9df2-40a4-abfb-c396acbfe70e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'add-ops.html:318',message:'findOperationByNameOrId EXIT',data:{searchValue:value,found:!!operation,foundOpsName:operation?.opsName},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'F'})}).catch(()=>{});
-        // #endregion
         return operation;
       }
 
