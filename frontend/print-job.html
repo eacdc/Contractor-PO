@@ -178,8 +178,8 @@
         { key: 'clientName', label: 'Client Name', type: 'text' },
         { key: 'jobTitle', label: 'Job Title', type: 'text' },
         { key: 'opsName', label: 'Ops Name', type: 'text' },
-        { key: 'qtyBook', label: 'Qty / Book', type: 'text' },
-        { key: 'rate', label: 'Rate', type: 'text' },
+        { key: 'qtyBook', label: 'Qty / Book', type: 'text', decimals: 4 },
+        { key: 'rate', label: 'Rate', type: 'text', decimals: 4 },
         { key: 'qtyCompleted', label: 'Qty Completed', type: 'text' },
         { key: 'totalValue', label: 'Total Value', type: 'text' }
       ];
@@ -302,7 +302,16 @@
         tableBody.innerHTML = rows.map(row => {
           return '<tr>' + COLUMNS.map(c => {
             const val = row[c.key];
-            const display = val == null || val === '' ? '-' : (typeof val === 'number' ? (Number.isInteger(val) ? val : val.toFixed(2)) : String(val));
+            let display;
+            if (val == null || val === '') {
+              display = '-';
+            } else if (typeof val === 'number' && c.decimals != null) {
+              display = val.toFixed(c.decimals);
+            } else if (typeof val === 'number') {
+              display = Number.isInteger(val) ? val : val.toFixed(2);
+            } else {
+              display = String(val);
+            }
             return `<td>${escapeHtml(display)}</td>`;
           }).join('') + '</tr>';
         }).join('');

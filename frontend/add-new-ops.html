@@ -329,8 +329,8 @@
                     </select>
                   </td>
                   <td>
-                    <span class="ops-rate-display">${op.ratePerUnit !== null && op.ratePerUnit !== undefined ? op.ratePerUnit : '-'}</span>
-                    <input type="number" class="ops-rate-edit" value="${op.ratePerUnit !== null && op.ratePerUnit !== undefined ? op.ratePerUnit : ''}" step="0.01" min="0" style="display: none; width: 100%;">
+                    <span class="ops-rate-display">${op.ratePerUnit !== null && op.ratePerUnit !== undefined ? Number(op.ratePerUnit).toFixed(4) : '-'}</span>
+                    <input type="number" class="ops-rate-edit" value="${op.ratePerUnit !== null && op.ratePerUnit !== undefined ? op.ratePerUnit : ''}" step="0.0001" min="0" style="display: none; width: 100%;">
                   </td>
                   <td>
                     <span class="ops-category-display">${escapeHtml(catDisplay)}</span>
@@ -475,7 +475,7 @@
           typeDisplay.textContent = newType;
           typeDisplay.style.display = 'inline';
           typeEdit.style.display = 'none';
-          rateDisplay.textContent = ratePerUnit;
+          rateDisplay.textContent = ratePerUnit != null && ratePerUnit !== '' ? Number(ratePerUnit).toFixed(4) : '-';
           rateDisplay.style.display = 'inline';
           rateEdit.style.display = 'none';
           if (categoryDisplay) {
