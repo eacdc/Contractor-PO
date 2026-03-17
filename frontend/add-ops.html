@@ -205,8 +205,9 @@
 
         <!-- Section 2: Previous ops -->
         <section class="panel panel--collapsible">
-          <header class="panel-header">
-            <h3>Previous Ops</h3>
+          <header class="panel-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <h3 style="margin: 0;">Previous Ops</h3>
+            <button type="button" class="secondary-btn primary-btn--sm" id="prevOpsExportBtn" style="display: none;">Export</button>
           </header>
           <div class="panel-body">
             <div class="table-wrapper">
@@ -387,6 +388,41 @@
           panel?.classList.toggle("panel-collapsed");
         });
       });
+
+      function exportTableToCsv(tableEl, filename) {
+        if (!tableEl) return;
+        const thead = tableEl.querySelector('thead tr');
+        const tbody = tableEl.querySelector('tbody');
+        if (!thead || !tbody) return;
+        const escapeCsv = (s) => {
+          const str = String(s == null ? '' : s).trim();
+          if (/[",\r\n]/.test(str)) return '"' + str.replace(/"/g, '""') + '"';
+          return str;
+        };
+        const headerCells = Array.from(thead.querySelectorAll('th')).map(th => escapeCsv(th.textContent));
+        const rows = [];
+        rows.push(headerCells.join(','));
+        tbody.querySelectorAll('tr').forEach(tr => {
+          const cells = Array.from(tr.querySelectorAll('td')).map(td => escapeCsv(td.textContent));
+          if (cells.length > 0) rows.push(cells.join(','));
+        });
+        const csv = rows.join('\r\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = filename || 'export.csv';
+        a.click();
+        URL.revokeObjectURL(a.href);
+      }
+
+      const prevOpsExportBtn = document.getElementById('prevOpsExportBtn');
+      if (prevOpsExportBtn) {
+        prevOpsExportBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const table = document.getElementById('prevOpsTable');
+          exportTableToCsv(table, 'previous-ops.csv');
+        });
+      }
 
       // Helper: Get currently selected op names/IDs from "Add New Ops" rows
       function getCurrentlySelectedOpNames() {
@@ -951,6 +987,12 @@
             prevOpsBody.innerHTML = '';
           }
 
+          const prevOpsExportBtn = document.getElementById('prevOpsExportBtn');
+          if (prevOpsExportBtn) {
+            const hasRows = previousOps && Array.isArray(previousOps.operations) && previousOps.operations.length > 0;
+            prevOpsExportBtn.style.display = hasRows ? '' : 'none';
+          }
+
           // Do not show any error if request succeeded
           jobSearchError.textContent = '';
           jobSearchError.style.display = 'none';
@@ -976,6 +1018,9 @@
           const colCount = isContractorUser() ? 3 : 4;
           headerRow.innerHTML = colCount === 3 ? '<th>Ops</th><th>Completed Qty</th><th>Pending</th>' : '<th>Ops</th><th>Completed Qty</th><th>Pending</th><th>Action</th>';
           prevOpsBody.innerHTML = `<tr><td colspan="${colCount}">No previous ops found</td></tr>`;
+
+          const prevOpsExportBtn = document.getElementById('prevOpsExportBtn');
+          if (prevOpsExportBtn) prevOpsExportBtn.style.display = 'none';
 
           // Mark that a job has been searched (even if not found)
           hasSearchedJob = true;
@@ -1349,6 +1394,8 @@
             const prevOpsBody = document.getElementById('prevOpsBody');
             if (headerRow) headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th>';
             if (prevOpsBody) prevOpsBody.innerHTML = '';
+            const prevOpsExportBtnReset = document.getElementById('prevOpsExportBtn');
+            if (prevOpsExportBtnReset) prevOpsExportBtnReset.style.display = 'none';
 
             // Reset job search flag
             hasSearchedJob = false;
@@ -1570,6 +1617,8 @@
         const prevOpsBody = document.getElementById('prevOpsBody');
         if (headerRow) headerRow.innerHTML = '<th>Ops</th><th>Completed Qty</th>';
         if (prevOpsBody) prevOpsBody.innerHTML = '<tr><td>-</td><td>-</td></tr>';
+        const prevOpsExportBtnClear = document.getElementById('prevOpsExportBtn');
+        if (prevOpsExportBtnClear) prevOpsExportBtnClear.style.display = 'none';
         
         // Clear add ops table
         if (opsBody) {
@@ -2217,6 +2266,26 @@
         
         section.appendChild(header);
         section.appendChild(body);
+        
+        if (jobData.previousOps && Array.isArray(jobData.previousOps.operations) && jobData.previousOps.operations.length > 0) {
+          header.style.display = 'flex';
+          header.style.alignItems = 'center';
+          header.style.justifyContent = 'space-between';
+          header.style.flexWrap = 'wrap';
+          header.style.gap = '8px';
+          const h3 = header.querySelector('h3');
+          if (h3) h3.style.margin = '0';
+          const exportBtn = document.createElement('button');
+          exportBtn.type = 'button';
+          exportBtn.className = 'secondary-btn primary-btn--sm';
+          exportBtn.textContent = 'Export';
+          exportBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            exportTableToCsv(table, 'previous-ops-' + (jobData.jobNumber || 'job') + '.csv');
+          });
+          header.appendChild(exportBtn);
+        }
+        
         return section;
       }
 

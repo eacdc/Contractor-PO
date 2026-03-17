@@ -124,8 +124,9 @@
         </div>
 
         <section class="panel" id="resultsPanel" style="display: none;">
-          <header class="panel-header">
-            <h3 id="resultsTitle">Bills for job</h3>
+          <header class="panel-header" style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
+            <h3 id="resultsTitle" style="margin: 0;">Bills for job</h3>
+            <button type="button" class="secondary-btn primary-btn--sm" id="printJobExportBtn" style="display: none;">Export</button>
           </header>
           <div class="panel-body">
             <div class="table-wrapper print-job-table-wrapper">
@@ -168,6 +169,7 @@
       const filterRow = document.getElementById('printJobFilterRow');
       const tableBody = document.getElementById('printJobBody');
       const tableInfo = document.getElementById('printJobInfo');
+      const printJobExportBtn = document.getElementById('printJobExportBtn');
 
       const COLUMNS = [
         { key: 'billNumber', label: 'Bill Number', type: 'text' },
@@ -296,6 +298,68 @@
         });
         renderRows(filtered);
         tableInfo.textContent = `Showing ${filtered.length} of ${allRows.length} row(s).`;
+        if (printJobExportBtn) printJobExportBtn.style.display = allRows.length >= 1 ? '' : 'none';
+      }
+
+      function getFilteredRows() {
+        const filters = getFilterValues();
+        return allRows.filter(row => {
+          for (const c of COLUMNS) {
+            if (c.type === 'date') {
+              const from = filters[`${c.key}_from`];
+              const to = filters[`${c.key}_to`];
+              const raw = row.paymentDateRaw;
+              if (!raw && (from || to)) return false;
+              if (from) {
+                const fromDate = new Date(from);
+                fromDate.setHours(0, 0, 0, 0);
+                if (raw < fromDate) return false;
+              }
+              if (to) {
+                const toDate = new Date(to);
+                toDate.setHours(23, 59, 59, 999);
+                if (raw > toDate) return false;
+              }
+            } else {
+              const f = filters[c.key];
+              if (!f) continue;
+              const val = row[c.key];
+              const str = val != null ? String(val).toLowerCase() : '';
+              if (!str.includes(f)) return false;
+            }
+          }
+          return true;
+        });
+      }
+
+      function exportPrintJobTable() {
+        const rows = getFilteredRows();
+        const escapeCsv = (s) => {
+          const str = String(s == null ? '' : s).trim();
+          if (/[",\r\n]/.test(str)) return '"' + str.replace(/"/g, '""') + '"';
+          return str;
+        };
+        const headerCells = COLUMNS.map(c => escapeCsv(c.label));
+        const csvRows = [headerCells.join(',')];
+        rows.forEach(row => {
+          const cells = COLUMNS.map(c => {
+            const val = row[c.key];
+            let display;
+            if (val == null || val === '') display = '';
+            else if (typeof val === 'number' && c.decimals != null) display = val.toFixed(c.decimals);
+            else if (typeof val === 'number') display = Number.isInteger(val) ? val : val.toFixed(2);
+            else display = String(val);
+            return escapeCsv(display);
+          });
+          csvRows.push(cells.join(','));
+        });
+        const csv = csvRows.join('\r\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'print-job-' + (currentJobNumber || 'export') + '.csv';
+        a.click();
+        URL.revokeObjectURL(a.href);
       }
 
       function renderRows(rows) {
@@ -352,6 +416,10 @@
           resultsPanel.style.display = 'flex';
           buildTable();
           applyFilters();
+          if (printJobExportBtn) {
+            printJobExportBtn.style.display = allRows.length >= 1 ? '' : 'none';
+            printJobExportBtn.onclick = () => exportPrintJobTable();
+          }
         } catch (err) {
           warningEl.textContent = err.message || 'Failed to load bills for this job.';
           resultsPanel.style.display = 'none';
