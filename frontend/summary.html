@@ -1,0 +1,584 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Contractor PO System - Summary</title>
+    <link rel="stylesheet" href="styles.css" />
+    <style>
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .summary-card {
+        padding: 14px 16px;
+        border-radius: 14px;
+        border: 1px solid var(--border-subtle);
+        background: var(--bg-elevated-soft);
+      }
+
+      .summary-label {
+        margin: 0;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+      }
+
+      .summary-value {
+        margin: 8px 0 0;
+        font-size: 1.35rem;
+        font-weight: 700;
+      }
+
+      .gp-positive {
+        color: #4ade80;
+      }
+
+      .gp-negative {
+        color: #f87171;
+      }
+
+      .summary-controls {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+      }
+
+      .summary-chart {
+        width: 100%;
+        height: 280px;
+        border: 1px solid var(--border-subtle);
+        border-radius: 12px;
+        background: rgba(15, 23, 42, 0.4);
+      }
+
+      .summary-table td,
+      .summary-table th {
+        text-align: left;
+      }
+
+      .summary-table thead th {
+        position: sticky;
+        z-index: 2;
+        background: rgba(15, 23, 42, 0.95);
+      }
+
+      .summary-table thead tr:first-child th {
+        top: 0;
+      }
+
+      .summary-table thead tr.filter-row th {
+        top: 42px;
+        z-index: 3;
+      }
+
+      .summary-table-wrapper {
+        max-height: 430px; /* about 10 body rows */
+        overflow-y: auto;
+      }
+
+      .table-tools {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 10px;
+        flex-wrap: wrap;
+      }
+
+      .table-tools button {
+        border: 1px solid var(--border-subtle);
+        background: rgba(15, 23, 42, 0.6);
+        color: var(--text-main);
+        border-radius: 8px;
+        padding: 6px 10px;
+        cursor: pointer;
+      }
+
+      .filter-row th {
+        background: rgba(15, 23, 42, 0.55);
+      }
+
+      .filter-inline {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .filter-inline input,
+      .filter-inline select {
+        width: 100%;
+        min-width: 0;
+      }
+
+      .filter-between {
+        display: none;
+      }
+
+      @media (max-width: 900px) {
+        .summary-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <script>
+      (function () {
+        try {
+          const userJson = localStorage.getItem("user");
+          if (userJson) {
+            const user = JSON.parse(userJson);
+            if (user && user.type === "contractor") {
+              window.location.replace("add-ops.html");
+              return;
+            }
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <div class="app">
+      <header class="app-header">
+        <div class="brand">
+          <div class="brand-logo">CP</div>
+          <div class="brand-text">
+            <h1>Contractor PO System</h1>
+            <p>Summary dashboard for price, cost and gross profit.</p>
+          </div>
+        </div>
+        <a href="home.html" class="home-btn">Home</a>
+      </header>
+
+      <main class="app-main app-main--home">
+        <section class="intro">
+          <h2>Summary</h2>
+          <p>Overview of total price, total cost, GP%, trend and job-wise GP.</p>
+        </section>
+
+        <section class="panel">
+          <div class="summary-grid">
+            <article class="summary-card">
+              <p class="summary-label">Total Price</p>
+              <p id="totalPriceValue" class="summary-value">-</p>
+            </article>
+            <article class="summary-card">
+              <p class="summary-label">Total Cost</p>
+              <p id="totalCostValue" class="summary-value">-</p>
+            </article>
+            <article class="summary-card">
+              <p class="summary-label">Gross Profit %</p>
+              <p id="gpValue" class="summary-value">-</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="panel">
+          <div class="summary-controls">
+            <label for="granularitySelect">Contractor Bill Value Chart</label>
+            <select id="granularitySelect">
+              <option value="year" selected>Year</option>
+              <option value="month">Month</option>
+              <option value="quarter">Quarter</option>
+            </select>
+            <select id="chartYearInput"></select>
+            <select id="chartMonthInput" style="display:none;">
+              <option value="1">January</option>
+              <option value="2">February</option>
+              <option value="3">March</option>
+              <option value="4">April</option>
+              <option value="5">May</option>
+              <option value="6">June</option>
+              <option value="7">July</option>
+              <option value="8">August</option>
+              <option value="9">September</option>
+              <option value="10">October</option>
+              <option value="11">November</option>
+              <option value="12">December</option>
+            </select>
+            <select id="chartQuarterInput" style="display:none;">
+              <option value="1">Q1</option>
+              <option value="2">Q2</option>
+              <option value="3">Q3</option>
+              <option value="4">Q4</option>
+            </select>
+          </div>
+          <svg id="gpChart" class="summary-chart" viewBox="0 0 900 280" preserveAspectRatio="none"></svg>
+          <p id="chartInfo" class="inline-info"></p>
+        </section>
+
+        <section class="panel">
+          <header class="panel-header">
+            <h3>Job-wise GP</h3>
+          </header>
+          <div class="table-tools">
+            <button type="button" id="gpQuickLt70">GP% less 70%</button>
+            <button type="button" id="gpQuickNegative">Negative GP%</button>
+            <button type="button" id="clearFiltersBtn">Clear Filters</button>
+          </div>
+          <div class="table-wrapper summary-table-wrapper">
+            <table class="data-table summary-table">
+              <thead>
+                <tr>
+                  <th><div class="filter-inline"><span>Job ID</span><button type="button" id="focusJobIdBtn">Search</button></div></th>
+                  <th><div class="filter-inline"><span>Total Price</span><button type="button" id="focusTotalPriceBtn">Search</button></div></th>
+                  <th><div class="filter-inline"><span>Total Cost</span><button type="button" id="focusTotalCostBtn">Search</button></div></th>
+                  <th><div class="filter-inline"><span>GP%</span><button type="button" id="focusGpBtn">Search</button></div></th>
+                </tr>
+                <tr class="filter-row">
+                  <th>
+                    <input type="text" id="jobIdFilter" placeholder="Search job id..." />
+                  </th>
+                  <th>
+                    <div class="filter-inline">
+                      <select id="totalPriceOp">
+                        <option value="">All</option>
+                        <option value="lt">Less than</option>
+                        <option value="gt">Greater than</option>
+                        <option value="between">Between</option>
+                      </select>
+                      <input type="number" id="totalPriceVal1" placeholder="Value" />
+                      <input type="number" id="totalPriceVal2" class="filter-between" placeholder="To" />
+                    </div>
+                  </th>
+                  <th>
+                    <div class="filter-inline">
+                      <select id="totalCostOp">
+                        <option value="">All</option>
+                        <option value="lt">Less than</option>
+                        <option value="gt">Greater than</option>
+                        <option value="between">Between</option>
+                      </select>
+                      <input type="number" id="totalCostVal1" placeholder="Value" />
+                      <input type="number" id="totalCostVal2" class="filter-between" placeholder="To" />
+                    </div>
+                  </th>
+                  <th>
+                    <div class="filter-inline">
+                      <select id="gpOp">
+                        <option value="">All</option>
+                        <option value="lt">Less than</option>
+                        <option value="gt">Greater than</option>
+                        <option value="between">Between</option>
+                      </select>
+                      <input type="number" id="gpVal1" placeholder="Value" />
+                      <input type="number" id="gpVal2" class="filter-between" placeholder="To" />
+                    </div>
+                  </th>
+                </tr>
+              </thead>
+              <tbody id="jobGpBody"></tbody>
+            </table>
+          </div>
+          <p id="summaryWarning" class="inline-warning"></p>
+        </section>
+      </main>
+
+      <footer class="app-footer">
+        <span>CDC Printers</span>
+        <span class="divider">•</span>
+        <span>Summary</span>
+      </footer>
+    </div>
+
+    <script type="module">
+      import { summaryAPI } from "./api.js";
+
+      const totalPriceValue = document.getElementById("totalPriceValue");
+      const totalCostValue = document.getElementById("totalCostValue");
+      const gpValue = document.getElementById("gpValue");
+      const granularitySelect = document.getElementById("granularitySelect");
+      const gpChart = document.getElementById("gpChart");
+      const chartInfo = document.getElementById("chartInfo");
+      const chartYearInput = document.getElementById("chartYearInput");
+      const chartMonthInput = document.getElementById("chartMonthInput");
+      const chartQuarterInput = document.getElementById("chartQuarterInput");
+      const jobGpBody = document.getElementById("jobGpBody");
+      const summaryWarning = document.getElementById("summaryWarning");
+      const jobIdFilter = document.getElementById("jobIdFilter");
+      const totalPriceOp = document.getElementById("totalPriceOp");
+      const totalPriceVal1 = document.getElementById("totalPriceVal1");
+      const totalPriceVal2 = document.getElementById("totalPriceVal2");
+      const totalCostOp = document.getElementById("totalCostOp");
+      const totalCostVal1 = document.getElementById("totalCostVal1");
+      const totalCostVal2 = document.getElementById("totalCostVal2");
+      const gpOp = document.getElementById("gpOp");
+      const gpVal1 = document.getElementById("gpVal1");
+      const gpVal2 = document.getElementById("gpVal2");
+      const gpQuickLt70 = document.getElementById("gpQuickLt70");
+      const gpQuickNegative = document.getElementById("gpQuickNegative");
+      const clearFiltersBtn = document.getElementById("clearFiltersBtn");
+      const focusJobIdBtn = document.getElementById("focusJobIdBtn");
+      const focusTotalPriceBtn = document.getElementById("focusTotalPriceBtn");
+      const focusTotalCostBtn = document.getElementById("focusTotalCostBtn");
+      const focusGpBtn = document.getElementById("focusGpBtn");
+      let allRows = [];
+
+      function formatCurrency(value) {
+        const number = Number(value || 0);
+        return new Intl.NumberFormat("en-IN", {
+          style: "currency",
+          currency: "INR",
+          maximumFractionDigits: 2,
+        }).format(number);
+      }
+
+      function formatPercent(value) {
+        if (value == null || !Number.isFinite(value)) return "-";
+        return `${Number(value).toFixed(2)}%`;
+      }
+
+      function setGpColor(el, gpPercent) {
+        el.classList.remove("gp-positive", "gp-negative");
+        if (gpPercent == null || !Number.isFinite(gpPercent)) return;
+        el.classList.add(gpPercent <= 0 ? "gp-negative" : "gp-positive");
+      }
+
+      function escapeHtml(str) {
+        return String(str || "")
+          .replace(/&/g, "&amp;")
+          .replace(/</g, "&lt;")
+          .replace(/>/g, "&gt;")
+          .replace(/\"/g, "&quot;")
+          .replace(/'/g, "&#039;");
+      }
+
+      function renderTable(rows) {
+        const sorted = [...rows].sort((a, b) => String(a.jobId || "").localeCompare(String(b.jobId || "")));
+        if (!sorted.length) {
+          jobGpBody.innerHTML = '<tr><td colspan="4">No summary data found.</td></tr>';
+          return;
+        }
+
+        jobGpBody.innerHTML = sorted
+          .map((row) => {
+            const gpClass = row.gpPercent != null && Number.isFinite(row.gpPercent)
+              ? (row.gpPercent <= 0 ? "gp-negative" : "gp-positive")
+              : "";
+            return `
+              <tr>
+                <td>${escapeHtml(row.jobId)}</td>
+                <td>${formatCurrency(row.totalPrice)}</td>
+                <td>${formatCurrency(row.totalCost)}</td>
+                <td class="${gpClass}">${formatPercent(row.gpPercent)}</td>
+              </tr>
+            `;
+          })
+          .join("");
+      }
+
+      function setBetweenVisibility(selectEl, val2El) {
+        val2El.style.display = selectEl.value === "between" ? "block" : "none";
+      }
+
+      function applyNumberFilter(value, op, val1Raw, val2Raw) {
+        if (!op) return true;
+        const num = Number(value);
+        const v1 = Number(val1Raw);
+        const v2 = Number(val2Raw);
+        if (!Number.isFinite(num)) return false;
+
+        if (op === "lt") return Number.isFinite(v1) ? num < v1 : true;
+        if (op === "gt") return Number.isFinite(v1) ? num > v1 : true;
+        if (op === "between") {
+          if (!Number.isFinite(v1) || !Number.isFinite(v2)) return true;
+          const min = Math.min(v1, v2);
+          const max = Math.max(v1, v2);
+          return num >= min && num <= max;
+        }
+        return true;
+      }
+
+      function applyFilters() {
+        const jobNeedle = String(jobIdFilter.value || "").toLowerCase().trim();
+        const filtered = allRows.filter((row) => {
+          if (jobNeedle && !String(row.jobId || "").toLowerCase().includes(jobNeedle)) return false;
+          if (!applyNumberFilter(row.totalPrice, totalPriceOp.value, totalPriceVal1.value, totalPriceVal2.value)) return false;
+          if (!applyNumberFilter(row.totalCost, totalCostOp.value, totalCostVal1.value, totalCostVal2.value)) return false;
+          if (!applyNumberFilter(row.gpPercent, gpOp.value, gpVal1.value, gpVal2.value)) return false;
+          return true;
+        });
+        renderTable(filtered);
+      }
+
+      function renderChart(labels, values) {
+        const width = 900;
+        const height = 280;
+        const left = 48;
+        const right = 24;
+        const top = 24;
+        const bottom = 92;
+        const innerW = width - left - right;
+        const innerH = height - top - bottom;
+
+        const bars = labels.map((label, idx) => ({
+          label,
+          value: Number(values[idx]),
+        })).filter((b) => Number.isFinite(b.value));
+
+        if (!bars.length) {
+          gpChart.innerHTML = `<text x="${width / 2}" y="${height / 2}" text-anchor="middle" fill="#9ca3af">No chart data</text>`;
+          return;
+        }
+
+        const maxY = Math.max(...bars.map((b) => b.value), 1);
+        const barGap = 8;
+        const barWidth = Math.max(12, (innerW - ((bars.length - 1) * barGap)) / bars.length);
+        const yScale = (val) => top + ((maxY - val) / maxY) * innerH;
+        const labelRotateDeg = bars.length > 8 ? -35 : -25;
+        const labelMaxChars = bars.length > 12 ? 8 : 12;
+
+        const contractorLabelsSvg = bars
+          .map((bar, idx) => {
+            const x = left + idx * (barWidth + barGap) + (barWidth / 2);
+            const y = height - bottom + (idx % 2 === 0 ? 28 : 42);
+            const name = String(bar.label || '');
+            const shortName = name.length > labelMaxChars ? `${name.slice(0, labelMaxChars)}...` : name;
+            const escaped = shortName
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+            return `<text x="${x}" y="${y}" fill="#9ca3af" font-size="10" text-anchor="end" transform="rotate(${labelRotateDeg} ${x} ${y})">${escaped}</text>`;
+          })
+          .join("");
+
+        const barsSvg = bars
+          .map((bar, idx) => {
+            const x = left + idx * (barWidth + barGap);
+            const y = yScale(bar.value);
+            const h = Math.max(1, (top + innerH) - y);
+            return `<rect x="${x}" y="${y}" width="${barWidth}" height="${h}" fill="#818cf8"><title>${bar.label}: ${bar.value.toFixed(2)}</title></rect>`;
+          })
+          .join("");
+
+        gpChart.innerHTML = `
+          <line x1="${left}" y1="${top}" x2="${left}" y2="${height - bottom}" stroke="rgba(156,163,175,0.5)" />
+          <line x1="${left}" y1="${height - bottom}" x2="${width - right}" y2="${height - bottom}" stroke="rgba(156,163,175,0.5)" />
+          ${barsSvg}
+          ${contractorLabelsSvg}
+          <text x="${left}" y="${top - 6}" fill="#9ca3af" font-size="11">${maxY.toFixed(2)}</text>
+        `;
+      }
+
+      async function loadSummary() {
+        const data = await summaryAPI.getSummary();
+        totalPriceValue.textContent = formatCurrency(data.totalPrice);
+        totalCostValue.textContent = formatCurrency(data.totalCost);
+        gpValue.textContent = formatPercent(data.gpPercent);
+        setGpColor(gpValue, data.gpPercent);
+        allRows = Array.isArray(data.jobWiseData) ? data.jobWiseData : [];
+        applyFilters();
+      }
+
+      async function loadChart() {
+        const filterType = granularitySelect.value;
+        const year = Number(chartYearInput.value || new Date().getFullYear());
+        const month = Number(chartMonthInput.value || (new Date().getMonth() + 1));
+        const quarter = Number(chartQuarterInput.value || 1);
+        const data = await summaryAPI.getChartData(filterType, year, month, quarter);
+        renderChart(Array.isArray(data.labels) ? data.labels : [], Array.isArray(data.totalValues) ? data.totalValues : []);
+        chartInfo.textContent = `Showing bill values by contractor (${filterType}).`;
+      }
+
+      async function init() {
+        summaryWarning.textContent = "";
+        try {
+          await loadSummary();
+          await loadChart();
+        } catch (error) {
+          summaryWarning.textContent = error?.message || "Failed to load summary data.";
+        }
+      }
+
+      function updateChartFilterVisibility() {
+        const filterType = granularitySelect.value;
+        chartMonthInput.style.display = filterType === "month" ? "block" : "none";
+        chartQuarterInput.style.display = filterType === "quarter" ? "block" : "none";
+      }
+
+      granularitySelect.addEventListener("change", async () => {
+        updateChartFilterVisibility();
+        chartInfo.textContent = "Loading chart...";
+        try {
+          await loadChart();
+        } catch (error) {
+          chartInfo.textContent = "";
+          summaryWarning.textContent = error?.message || "Failed to load chart data.";
+        }
+      });
+
+      [chartYearInput, chartMonthInput, chartQuarterInput].forEach((el) => el.addEventListener("change", async () => {
+        chartInfo.textContent = "Loading chart...";
+        try {
+          await loadChart();
+        } catch (error) {
+          chartInfo.textContent = "";
+          summaryWarning.textContent = error?.message || "Failed to load chart data.";
+        }
+      }));
+
+      [totalPriceOp, totalCostOp, gpOp].forEach((selectEl) => {
+        selectEl.addEventListener("change", () => {
+          setBetweenVisibility(totalPriceOp, totalPriceVal2);
+          setBetweenVisibility(totalCostOp, totalCostVal2);
+          setBetweenVisibility(gpOp, gpVal2);
+          applyFilters();
+        });
+      });
+      [jobIdFilter, totalPriceVal1, totalPriceVal2, totalCostVal1, totalCostVal2, gpVal1, gpVal2].forEach((el) => {
+        el.addEventListener("input", applyFilters);
+      });
+
+      gpQuickLt70.addEventListener("click", () => {
+        gpOp.value = "lt";
+        gpVal1.value = "70";
+        gpVal2.value = "";
+        setBetweenVisibility(gpOp, gpVal2);
+        applyFilters();
+      });
+
+      gpQuickNegative.addEventListener("click", () => {
+        gpOp.value = "lt";
+        gpVal1.value = "0";
+        gpVal2.value = "";
+        setBetweenVisibility(gpOp, gpVal2);
+        applyFilters();
+      });
+
+      clearFiltersBtn.addEventListener("click", () => {
+        jobIdFilter.value = "";
+        totalPriceOp.value = "";
+        totalPriceVal1.value = "";
+        totalPriceVal2.value = "";
+        totalCostOp.value = "";
+        totalCostVal1.value = "";
+        totalCostVal2.value = "";
+        gpOp.value = "";
+        gpVal1.value = "";
+        gpVal2.value = "";
+        setBetweenVisibility(totalPriceOp, totalPriceVal2);
+        setBetweenVisibility(totalCostOp, totalCostVal2);
+        setBetweenVisibility(gpOp, gpVal2);
+        applyFilters();
+      });
+
+      focusJobIdBtn.addEventListener("click", () => jobIdFilter.focus());
+      focusTotalPriceBtn.addEventListener("click", () => totalPriceVal1.focus());
+      focusTotalCostBtn.addEventListener("click", () => totalCostVal1.focus());
+      focusGpBtn.addEventListener("click", () => gpVal1.focus());
+
+      const currentYear = new Date().getFullYear();
+      const recentYears = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4];
+      chartYearInput.innerHTML = recentYears.map((year) => `<option value="${year}">${year}</option>`).join("");
+      chartYearInput.value = String(currentYear);
+      chartMonthInput.value = String(new Date().getMonth() + 1);
+      chartQuarterInput.value = String(Math.floor(new Date().getMonth() / 3) + 1);
+      updateChartFilterVisibility();
+      init();
+    </script>
+  </body>
+</html>

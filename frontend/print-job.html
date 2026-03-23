@@ -69,6 +69,24 @@
         text-overflow: ellipsis;
         word-wrap: break-word;
       }
+      .print-job-table-wrapper .data-table tfoot td {
+        position: sticky;
+        bottom: 0;
+        z-index: 2;
+        background: #0c1433;
+        border-top: 1px solid rgba(156, 163, 175, 0.35);
+      }
+      .print-job-total-bar {
+        margin-top: 8px;
+        padding: 8px 10px;
+        border: 1px solid rgba(156, 163, 175, 0.35);
+        border-radius: 6px;
+        background: rgba(12, 20, 51, 0.9);
+        display: flex;
+        justify-content: flex-end;
+        gap: 10px;
+        font-weight: 700;
+      }
     </style>
   </head>
   <body class="print-job-page">
@@ -142,7 +160,14 @@
                 <tbody id="printJobBody">
                   <!-- Rows filled by JS -->
                 </tbody>
+                <tfoot id="printJobFooter">
+                  <!-- Total row filled by JS -->
+                </tfoot>
               </table>
+            </div>
+            <div class="print-job-total-bar" id="printJobTotalBar" style="display: none;">
+              <span>Total Value:</span>
+              <span id="printJobTotalValue">0.00</span>
             </div>
             <p class="inline-info" id="printJobInfo"></p>
           </div>
@@ -168,6 +193,9 @@
       const headerRow = document.getElementById('printJobHeaderRow');
       const filterRow = document.getElementById('printJobFilterRow');
       const tableBody = document.getElementById('printJobBody');
+      const tableFooter = document.getElementById('printJobFooter');
+      const printJobTotalBar = document.getElementById('printJobTotalBar');
+      const printJobTotalValue = document.getElementById('printJobTotalValue');
       const tableInfo = document.getElementById('printJobInfo');
       const printJobExportBtn = document.getElementById('printJobExportBtn');
 
@@ -298,7 +326,27 @@
         });
         renderRows(filtered);
         tableInfo.textContent = `Showing ${filtered.length} of ${allRows.length} row(s).`;
+        renderTotalRow(filtered);
         if (printJobExportBtn) printJobExportBtn.style.display = allRows.length >= 1 ? '' : 'none';
+      }
+
+      function renderTotalRow(rows) {
+        const totalValueSum = rows.reduce((sum, row) => {
+          const value = Number(row.totalValue);
+          return sum + (Number.isFinite(value) ? value : 0);
+        }, 0);
+        const emptyCols = Math.max(COLUMNS.length - 2, 0);
+        tableFooter.innerHTML = `
+          <tr>
+            <td colspan="${emptyCols}"></td>
+            <td style="font-weight: 700; text-align: right;">Total</td>
+            <td style="font-weight: 700;">${totalValueSum.toFixed(2)}</td>
+          </tr>
+        `;
+        if (printJobTotalBar && printJobTotalValue) {
+          printJobTotalBar.style.display = rows.length > 0 ? '' : 'none';
+          printJobTotalValue.textContent = totalValueSum.toFixed(2);
+        }
       }
 
       function getFilteredRows() {

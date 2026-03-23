@@ -170,6 +170,19 @@ export const billEditAPI = {
     })
 };
 
+// Summary API
+export const summaryAPI = {
+  getSummary: () => apiCall('/summary'),
+  getChartData: (filterType = 'year', year, month, quarter) => {
+    const params = new URLSearchParams();
+    params.set('filterType', filterType);
+    if (year != null) params.set('year', String(year));
+    if (month != null) params.set('month', String(month));
+    if (quarter != null) params.set('quarter', String(quarter));
+    return apiCall(`/summary/chart?${params.toString()}`);
+  }
+};
+
 // Series API
 export const seriesAPI = {
   getAll: () => apiCall('/series'),
