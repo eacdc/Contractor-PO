@@ -209,9 +209,9 @@
         { key: 'jobTitle', label: 'Job Title', type: 'text' },
         { key: 'opsName', label: 'Ops Name', type: 'text' },
         { key: 'qtyBook', label: 'Qty / Book', type: 'text', decimals: 4 },
-        { key: 'rate', label: 'Rate', type: 'text', decimals: 4 },
+        { key: 'rate', label: 'Rate', type: 'text', decimals: 8 },
         { key: 'qtyCompleted', label: 'Qty Completed', type: 'text' },
-        { key: 'totalValue', label: 'Total Value', type: 'text' }
+        { key: 'totalValue', label: 'Total Value', type: 'text', decimals: 4 }
       ];
 
       function formatDate(dateVal) {
@@ -340,12 +340,12 @@
           <tr>
             <td colspan="${emptyCols}"></td>
             <td style="font-weight: 700; text-align: right;">Total</td>
-            <td style="font-weight: 700;">${totalValueSum.toFixed(2)}</td>
+            <td style="font-weight: 700;">${totalValueSum.toFixed(4)}</td>
           </tr>
         `;
         if (printJobTotalBar && printJobTotalValue) {
           printJobTotalBar.style.display = rows.length > 0 ? '' : 'none';
-          printJobTotalValue.textContent = totalValueSum.toFixed(2);
+          printJobTotalValue.textContent = totalValueSum.toFixed(4);
         }
       }
 

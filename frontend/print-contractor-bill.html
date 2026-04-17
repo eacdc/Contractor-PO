@@ -284,7 +284,7 @@
             const jobNumberText = job.jobNumber || '';
             const clientNameText = job.clientName || '';
             const jobTitleText = job.jobTitle || '';
-            const values = [jobNumberText, clientNameText, jobTitleText, operationName, qtyBook.toFixed(4), rate.toFixed(4), qtyCompleted.toFixed(2), total.toFixed(2)];
+            const values = [jobNumberText, clientNameText, jobTitleText, operationName, qtyBook.toFixed(4), rate.toFixed(8), qtyCompleted.toFixed(2), total.toFixed(4)];
             yPos = drawTableRow(yPos, values, rowCount % 2 === 1);
             rowCount++;
           });
@@ -575,7 +575,7 @@
               <td style="padding:6px 8px;border-bottom:1px solid rgba(156, 163, 175, 0.25);color:#f9fafb;">${jobNumber}</td>
               <td style="padding:6px 8px;border-bottom:1px solid rgba(156, 163, 175, 0.25);color:#f9fafb;">${opsName}</td>
               <td style="padding:6px 8px;border-bottom:1px solid rgba(156, 163, 175, 0.25);text-align:right;color:#f9fafb;">
-                ${rate.toFixed(4)}
+                ${rate.toFixed(8)}
               </td>
               <td style="padding:6px 8px;border-bottom:1px solid rgba(156, 163, 175, 0.25);text-align:right;">
                 <input
@@ -600,7 +600,7 @@
                 />
               </td>
               <td style="padding:6px 8px;border-bottom:1px solid rgba(156, 163, 175, 0.25);text-align:right;color:#f9fafb;">
-                <span class="bill-edit-total-cell">${totalValue.toFixed(2)}</span>
+                <span class="bill-edit-total-cell">${totalValue.toFixed(4)}</span>
               </td>
               <td style="padding:6px 8px;border-bottom:1px solid rgba(156, 163, 175, 0.25);text-align:center;">
                 <button type="button" class="bill-edit-row-delete-btn" style="
@@ -650,7 +650,7 @@
           const totalCell = tr.querySelector('.bill-edit-total-cell');
           if (totalCell) {
             const newTotal = rate * (Number.isFinite(newQty) ? newQty : 0);
-            totalCell.textContent = newTotal.toFixed(2);
+            totalCell.textContent = newTotal.toFixed(4);
           }
         });
 

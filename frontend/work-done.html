@@ -1410,9 +1410,9 @@
               <td>${item.jobNumber}</td>
               <td>${item.opsName}</td>
               <td>${Number(item.qtyBook ?? 0).toFixed(4)}</td>
-              <td>${(Number(item.valuePerBook) || 0).toFixed(4)}</td>
+              <td>${(Number(item.valuePerBook) || 0).toFixed(8)}</td>
               <td>${item.qtyCompleted}</td>
-              <td>${totalValue.toFixed(2)}</td>
+              <td>${totalValue.toFixed(4)}</td>
               <td>
                 <button class="secondary-btn primary-btn--sm" type="button" data-delete-index="${index}" style="background-color: #ef4444; color: white; border: 1px solid #dc2626; padding: 7px 16px; cursor: pointer;">
                   Delete
@@ -1427,7 +1427,7 @@
             billTableFooter.innerHTML = `
               <tr>
                 <td colspan="6" style="text-align: right; font-weight: bold;">Total:</td>
-                <td style="font-weight: bold;">${totalValueSum.toFixed(2)}</td>
+                <td style="font-weight: bold;">${totalValueSum.toFixed(4)}</td>
               </tr>
             `;
           }

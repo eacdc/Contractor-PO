@@ -650,16 +650,16 @@
           }
         }
 
-        rateInput.value = ratePerUnit.toFixed(4);
+        rateInput.value = ratePerUnit.toFixed(8);
 
         // Calculate rate/book based on operation type
         const qty = qtyInput && qtyInput.value ? Number(qtyInput.value) : 0;
         if (operation && operation.type === '1/x' && qty > 0) {
           // For 1/x: rate/book = rate * (1 / booksPerOps)
-          rateBookInput.value = (ratePerUnit * (1 / qty)).toFixed(4);
+          rateBookInput.value = (ratePerUnit * (1 / qty)).toFixed(8);
         } else if (qty > 0) {
           // For 1:1 and 1*x: rate/book = rate * qty
-          rateBookInput.value = (qty * ratePerUnit).toFixed(4);
+          rateBookInput.value = (qty * ratePerUnit).toFixed(8);
         } else {
           rateBookInput.value = '';
         }
@@ -692,10 +692,10 @@
             const rateBookInput = clone.querySelector('input[name="rateBook"]');
             if (opsInput) opsInput.value = op.opsName || '';
             if (qtyInput) { qtyInput.value = '1'; qtyInput.readOnly = true; }
-            if (rateInput) { rateInput.value = Number(op.ratePerUnit || 0).toFixed(4); rateInput.readOnly = true; }
+            if (rateInput) { rateInput.value = Number(op.ratePerUnit || 0).toFixed(8); rateInput.readOnly = true; }
             if (rateBookInput) {
               const ratePerUnit = Number(op.ratePerUnit || 0);
-              rateBookInput.value = (1 * ratePerUnit).toFixed(4);
+              rateBookInput.value = (1 * ratePerUnit).toFixed(8);
               rateBookInput.readOnly = true;
             }
             addOpsBodyEl.appendChild(clone);
@@ -1274,10 +1274,10 @@
             if (!isNaN(qty) && !isNaN(rate) && qty > 0) {
               if (operation && operation.type === '1/x') {
                 // For 1/x: rate/book = rate * (1 / booksPerOps)
-                rateBookInput.value = (rate * (1 / qty)).toFixed(4);
+                rateBookInput.value = (rate * (1 / qty)).toFixed(8);
               } else {
                 // For 1:1 and 1*x: rate/book = rate * qty
-                rateBookInput.value = (qty * rate).toFixed(4);
+                rateBookInput.value = (qty * rate).toFixed(8);
               }
             } else {
               rateBookInput.value = '';
@@ -1344,8 +1344,8 @@
               operations.push({
                 operationId: operation._id,
                 qtyPerBook: parseFloat(qtyInput.value),
-                rate: parseFloat(parseFloat(rateInput.value).toFixed(4)),
-                ratePerBook: parseFloat(parseFloat(rateBookInput.value).toFixed(4))
+                rate: parseFloat(parseFloat(rateInput.value).toFixed(8)),
+                ratePerBook: parseFloat(parseFloat(rateBookInput.value).toFixed(8))
               });
             }
           }
@@ -2432,9 +2432,9 @@
                 const rateBookInput = row.querySelector('input[name="rateBook"]');
                 if (opsInput) opsInput.value = op.opsName || '';
                 if (qtyInput) { qtyInput.value = '1'; qtyInput.readOnly = true; }
-                if (rateInput) { rateInput.value = Number(op.ratePerUnit || 0).toFixed(4); rateInput.readOnly = true; }
+                if (rateInput) { rateInput.value = Number(op.ratePerUnit || 0).toFixed(8); rateInput.readOnly = true; }
                 if (rateBookInput) {
-                  rateBookInput.value = (1 * Number(op.ratePerUnit || 0)).toFixed(4);
+                  rateBookInput.value = (1 * Number(op.ratePerUnit || 0)).toFixed(8);
                   rateBookInput.readOnly = true;
                 }
                 opsBody.appendChild(row);
@@ -2806,8 +2806,8 @@
               operations.push({
                 operationId: operation._id,
                 qtyPerBook: parseFloat(qtyInput.value),
-                rate: parseFloat(parseFloat(rateInput.value).toFixed(4)),
-                ratePerBook: parseFloat(parseFloat(rateBookInput.value).toFixed(4))
+                rate: parseFloat(parseFloat(rateInput.value).toFixed(8)),
+                ratePerBook: parseFloat(parseFloat(rateBookInput.value).toFixed(8))
               });
             }
           }
@@ -3083,10 +3083,10 @@
             if (!isNaN(qty) && !isNaN(rate) && qty > 0) {
               if (operation && operation.type === '1/x') {
                 // For 1/x: rate/book = rate * (1 / booksPerOps)
-                rateBookInput.value = (rate * (1 / qty)).toFixed(4);
+                rateBookInput.value = (rate * (1 / qty)).toFixed(8);
               } else {
                 // For 1:1 and 1*x: rate/book = rate * qty
-                rateBookInput.value = (qty * rate).toFixed(4);
+                rateBookInput.value = (qty * rate).toFixed(8);
               }
             } else {
               rateBookInput.value = '';
