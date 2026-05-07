@@ -85,6 +85,12 @@
                   <option value="1/x">1/x</option>
                 </select>
               </div>
+              <div class="field">
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:20px;">
+                  <input type="checkbox" id="newOpsIsAdhoc" style="width:auto; margin:0;" />
+                  <span>Adhoc Ops</span>
+                </label>
+              </div>
               <div class="field" id="newOpsCategoryField">
                 <label for="newOpsCategoryTrigger">Categories (optional, multi-select)</label>
                 <div class="category-dropdown" id="newOpsCategoryDropdown">
@@ -119,6 +125,7 @@
                   <tr>
                     <th>Ops Name</th>
                     <th>Type</th>
+                    <th>Adhoc Ops</th>
                     <th>Rate/Unit</th>
                     <th>Category</th>
                     <th>Actions</th>
@@ -180,6 +187,7 @@
       // Add new operation
       const newOpsNameInput = document.getElementById("newOpsName");
       const newOpsTypeSelect = document.getElementById("newOpsType");
+      const newOpsIsAdhocCheckbox = document.getElementById("newOpsIsAdhoc");
       const newOpsRatePerUnitInput = document.getElementById("newOpsRatePerUnit");
       const newOpsCategoryTrigger = document.getElementById("newOpsCategoryTrigger");
       const newOpsCategoryPanel = document.getElementById("newOpsCategoryPanel");
@@ -247,6 +255,20 @@
         document.querySelectorAll('.ops-category-panel').forEach(p => { p.style.display = 'none'; });
       });
 
+      function applyAdhocTypeRule() {
+        if (!newOpsIsAdhocCheckbox || !newOpsTypeSelect) return;
+        if (newOpsIsAdhocCheckbox.checked) {
+          newOpsTypeSelect.value = '1:1';
+          newOpsTypeSelect.disabled = true;
+        } else {
+          newOpsTypeSelect.disabled = false;
+        }
+      }
+
+      if (newOpsIsAdhocCheckbox) {
+        newOpsIsAdhocCheckbox.addEventListener('change', applyAdhocTypeRule);
+      }
+
       if (
         newOpsNameInput &&
         newOpsTypeSelect &&
@@ -257,6 +279,7 @@
         addNewOpsBtn.addEventListener("click", async () => {
           const name = newOpsNameInput.value.trim();
           const type = newOpsTypeSelect.value;
+          const isAdhocOp = !!(newOpsIsAdhocCheckbox && newOpsIsAdhocCheckbox.checked);
           const ratePerUnitValue = newOpsRatePerUnitInput.value.trim();
           const categories = newOpsCategoryPanel
             ? Array.from(newOpsCategoryPanel.querySelectorAll('.ops-category-cb:checked')).map(cb => cb.value)
@@ -277,7 +300,7 @@
           }
 
           try {
-            const operation = await operationsAPI.create(name, type, ratePerUnit, categories);
+            const operation = await operationsAPI.create(name, type, ratePerUnit, categories, isAdhocOp);
             addNewOpsWarning.textContent = "";
             addNewOpsWarning.style.color = "#4ade80";
             addNewOpsWarning.textContent = "Operation added successfully!";
@@ -288,6 +311,8 @@
             // Clear inputs
             newOpsNameInput.value = "";
             newOpsTypeSelect.value = "";
+            if (newOpsIsAdhocCheckbox) newOpsIsAdhocCheckbox.checked = false;
+            applyAdhocTypeRule();
             newOpsRatePerUnitInput.value = "";
             if (newOpsCategoryPanel) {
               newOpsCategoryPanel.querySelectorAll('.ops-category-cb').forEach(cb => { cb.checked = false; });
@@ -322,11 +347,18 @@
                   </td>
                   <td>
                     <span class="ops-type-display">${op.type}</span>
-                    <select class="ops-type-edit" style="display: none; width: 100%;">
+                    <select class="ops-type-edit" style="display: none; width: 100%;" ${op.isAdhocOp ? 'disabled' : ''}>
                       <option value="1:1" ${op.type === '1:1' ? 'selected' : ''}>1:1</option>
                       <option value="1*x" ${op.type === '1*x' ? 'selected' : ''}>1*x</option>
                       <option value="1/x" ${op.type === '1/x' ? 'selected' : ''}>1/x</option>
                     </select>
+                  </td>
+                  <td>
+                    <span class="ops-adhoc-display">${op.isAdhocOp ? 'Yes' : 'No'}</span>
+                    <label class="ops-adhoc-edit" style="display:none; align-items:center; gap:6px; cursor:pointer;">
+                      <input type="checkbox" class="ops-adhoc-checkbox" ${op.isAdhocOp ? 'checked' : ''} />
+                      <span>Adhoc</span>
+                    </label>
                   </td>
                   <td>
                     <span class="ops-rate-display">${op.ratePerUnit !== null && op.ratePerUnit !== undefined ? Number(op.ratePerUnit).toFixed(4) : '-'}</span>
@@ -370,6 +402,9 @@
             const nameEdit = row.querySelector('.ops-name-edit');
             const typeDisplay = row.querySelector('.ops-type-display');
             const typeEdit = row.querySelector('.ops-type-edit');
+            const adhocDisplay = row.querySelector('.ops-adhoc-display');
+            const adhocEdit = row.querySelector('.ops-adhoc-edit');
+            const adhocCheckbox = row.querySelector('.ops-adhoc-checkbox');
             const rateDisplay = row.querySelector('.ops-rate-display');
             const rateEdit = row.querySelector('.ops-rate-edit');
             const categoryDisplay = row.querySelector('.ops-category-display');
@@ -382,21 +417,45 @@
               nameEdit.style.display = 'inline-block';
               typeDisplay.style.display = 'none';
               typeEdit.style.display = 'inline-block';
+              if (adhocDisplay) adhocDisplay.style.display = 'none';
+              if (adhocEdit) adhocEdit.style.display = 'inline-flex';
               rateDisplay.style.display = 'none';
               rateEdit.style.display = 'inline-block';
               if (categoryDisplay) categoryDisplay.style.display = 'none';
               if (categoryEdit) categoryEdit.style.display = 'inline-block';
+              if (adhocCheckbox) {
+                typeEdit.disabled = !!adhocCheckbox.checked;
+              }
               editBtn.textContent = 'Save';
               
               nameEdit.focus();
               nameEdit.select();
             } else {
               // Save mode: collect checked categories from row
+              const isAdhocOp = !!(adhocCheckbox && adhocCheckbox.checked);
+              if (isAdhocOp) {
+                typeEdit.value = '1:1';
+              }
               const categoryEditEl = row.querySelector('.ops-category-edit');
               const newCategories = categoryEditEl
                 ? Array.from(categoryEditEl.querySelectorAll('.ops-category-cb:checked')).map(cb => cb.value)
                 : [];
-              await saveOpsEdit(opId, nameEdit.value.trim(), typeEdit.value, rateEdit.value.trim(), newCategories, row);
+              await saveOpsEdit(opId, nameEdit.value.trim(), typeEdit.value, rateEdit.value.trim(), newCategories, isAdhocOp, row);
+            }
+          });
+        });
+
+        // Adhoc checkbox controls type edit in-row
+        document.querySelectorAll('.ops-adhoc-checkbox').forEach(cb => {
+          cb.addEventListener('change', function() {
+            const row = this.closest('tr');
+            const typeEdit = row?.querySelector('.ops-type-edit');
+            if (!typeEdit) return;
+            if (this.checked) {
+              typeEdit.value = '1:1';
+              typeEdit.disabled = true;
+            } else {
+              typeEdit.disabled = false;
             }
           });
         });
@@ -442,7 +501,7 @@
       }
 
       // Save operation edit
-      async function saveOpsEdit(opId, newName, newType, newRatePerUnit, newCategories, row) {
+      async function saveOpsEdit(opId, newName, newType, newRatePerUnit, newCategories, isAdhocOp, row) {
         if (!newName || !newType) {
           addNewOpsWarning.style.color = '#ef4444';
           addNewOpsWarning.textContent = 'Ops Name and Type are required.';
@@ -458,11 +517,13 @@
         
         const categoriesArr = Array.isArray(newCategories) ? newCategories : [];
         try {
-          await operationsAPI.update(opId, newName, newType, ratePerUnit, categoriesArr);
+          await operationsAPI.update(opId, newName, newType, ratePerUnit, categoriesArr, isAdhocOp);
           const nameDisplay = row.querySelector('.ops-name-display');
           const nameEdit = row.querySelector('.ops-name-edit');
           const typeDisplay = row.querySelector('.ops-type-display');
           const typeEdit = row.querySelector('.ops-type-edit');
+          const adhocDisplay = row.querySelector('.ops-adhoc-display');
+          const adhocEdit = row.querySelector('.ops-adhoc-edit');
           const rateDisplay = row.querySelector('.ops-rate-display');
           const rateEdit = row.querySelector('.ops-rate-edit');
           const categoryDisplay = row.querySelector('.ops-category-display');
@@ -475,6 +536,11 @@
           typeDisplay.textContent = newType;
           typeDisplay.style.display = 'inline';
           typeEdit.style.display = 'none';
+          if (adhocDisplay) {
+            adhocDisplay.textContent = isAdhocOp ? 'Yes' : 'No';
+            adhocDisplay.style.display = 'inline';
+          }
+          if (adhocEdit) adhocEdit.style.display = 'none';
           rateDisplay.textContent = ratePerUnit != null && ratePerUnit !== '' ? Number(ratePerUnit).toFixed(4) : '-';
           rateDisplay.style.display = 'inline';
           rateEdit.style.display = 'none';
@@ -498,6 +564,7 @@
 
       (async function init() {
         await loadCategories();
+        applyAdhocTypeRule();
         await loadExistingOperations();
       })();
     </script>

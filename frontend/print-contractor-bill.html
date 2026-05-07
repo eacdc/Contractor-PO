@@ -281,7 +281,7 @@
             const total = Number(op.totalValue || 0);
             billAmount += total;
             const operationName = op.opsName || op.operationName || op.name || `Op ${opIndex + 1}`;
-            const jobNumberText = job.jobNumber || '';
+            const jobNumberText = job.isAdhoc ? `Ad-hoc: ${job.adhocLabel || '-'}` : (job.jobNumber || '');
             const clientNameText = job.clientName || '';
             const jobTitleText = job.jobTitle || '';
             const values = [jobNumberText, clientNameText, jobTitleText, operationName, qtyBook.toFixed(4), rate.toFixed(8), qtyCompleted.toFixed(2), total.toFixed(4)];
@@ -558,7 +558,8 @@
         const tbody = table.querySelector('tbody');
 
         bill.jobs.forEach(job => {
-          const jobNumber = job.jobNumber;
+          const isAdhoc = !!job.isAdhoc;
+          const jobNumber = isAdhoc ? `Ad-hoc: ${job.adhocLabel || '-'}` : (job.jobNumber || '');
           (job.ops || []).forEach(op => {
             const opsName = op.opsName || '';
             const rate = Number(op.rate || 0);
@@ -566,7 +567,8 @@
             const totalValue = Number(op.totalValue || rate * oldQty || 0);
 
             const tr = document.createElement('tr');
-            tr.dataset.jobNumber = jobNumber;
+            tr.dataset.jobNumber = job.jobNumber || '';
+            tr.dataset.isAdhoc = isAdhoc ? '1' : '0';
             tr.dataset.opsName = opsName;
             tr.dataset.rate = String(rate);
             tr.dataset.oldQty = String(oldQty);
@@ -780,6 +782,8 @@
           const changes = [];
 
           rows.forEach(tr => {
+            const isAdhoc = tr.dataset.isAdhoc === '1';
+            if (isAdhoc) return;
             const jobNumber = tr.dataset.jobNumber;
             const opsName = tr.dataset.opsName;
             const rateStr = tr.dataset.rate;
