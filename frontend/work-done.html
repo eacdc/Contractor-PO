@@ -149,6 +149,9 @@
               <button class="primary-btn primary-btn--sm" type="button" id="submitBillBtn" disabled>
                 SUBMIT
               </button>
+              <button class="secondary-btn primary-btn--sm" type="button" id="exportBillBtn" disabled title="Export Bill Details to Excel">
+                Export to Excel
+              </button>
             </div>
           </div>
         </section>
@@ -208,6 +211,7 @@
       const jobNumberInput = document.getElementById("jobNumberWork");
       const jobNumberList = document.getElementById("jobNumberList");
       const submitBtn = document.getElementById("submitBillBtn");
+      const exportBillBtn = document.getElementById("exportBillBtn");
       const addBtn = document.getElementById("addBtn");
       const billTablePanel = document.getElementById("billTablePanel");
       const billTableBody = document.getElementById("billTableBody");
@@ -350,6 +354,60 @@
         if (submitBtn) {
           submitBtn.disabled = billData.length === 0;
         }
+        if (exportBillBtn) {
+          exportBillBtn.disabled = billData.length === 0;
+        }
+      }
+
+      // Export Bill Details table to an Excel-compatible file
+      function exportBillToExcel() {
+        if (!billData.length) return;
+
+        const contractorName = contractorSelect?.options[contractorSelect.selectedIndex]?.text || '';
+        const dateStr = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
+
+        // Build rows
+        const headers = ['Reference', 'Operation', 'Qty/Book', 'Rate/Book', 'Qty Completed', 'Total Value'];
+        const rows = billData
+          .filter(item => item.opsName && item.opsName.trim())
+          .map(item => {
+            const ref = item.isAdhoc ? `Ad-hoc: ${item.adhocLabel || '-'}` : item.jobNumber;
+            return [
+              ref,
+              item.opsName,
+              Number(item.qtyBook ?? 0).toFixed(4),
+              (Number(item.valuePerBook) || 0).toFixed(8),
+              item.qtyCompleted,
+              (Number(item.totalValue) || 0).toFixed(4)
+            ];
+          });
+
+        const totalValue = billData.reduce((s, item) => s + (Number(item.totalValue) || 0), 0);
+        rows.push(['', '', '', '', 'Total:', totalValue.toFixed(4)]);
+
+        // Build CSV content
+        const escape = val => {
+          const s = String(val ?? '');
+          return s.includes(',') || s.includes('"') || s.includes('\n') ? `"${s.replace(/"/g, '""')}"` : s;
+        };
+        const csvLines = [headers, ...rows].map(r => r.map(escape).join(','));
+
+        // Add contractor & date as a header comment row at the top
+        csvLines.unshift(`Bill Details - Contractor: ${contractorName} - Date: ${dateStr}`);
+
+        const csvContent = csvLines.join('\r\n');
+        const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Bill_Details_${contractorName.replace(/\s+/g,'_')}_${dateStr}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 100);
+      }
+
+      if (exportBillBtn) {
+        exportBillBtn.addEventListener('click', exportBillToExcel);
       }
 
 
