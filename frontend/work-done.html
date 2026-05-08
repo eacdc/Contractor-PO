@@ -135,6 +135,15 @@
                     <th>Total Value</th>
                     <th>Action</th>
                   </tr>
+                  <tr>
+                    <th><input type="text" id="billFilterReference" placeholder="Filter reference" style="width: 100%;" /></th>
+                    <th><input type="text" id="billFilterOperation" placeholder="Filter operation" style="width: 100%;" /></th>
+                    <th><input type="text" id="billFilterQtyBook" placeholder="Filter qty/book" style="width: 100%;" /></th>
+                    <th><input type="text" id="billFilterRate" placeholder="Filter rate" style="width: 100%;" /></th>
+                    <th><input type="text" id="billFilterQtyCompleted" placeholder="Filter qty completed" style="width: 100%;" /></th>
+                    <th><input type="text" id="billFilterTotalValue" placeholder="Filter total value" style="width: 100%;" /></th>
+                    <th></th>
+                  </tr>
                 </thead>
                 <tbody id="billTableBody">
                   <!-- Rows will be populated when ADD button is clicked -->
@@ -215,6 +224,12 @@
       const addBtn = document.getElementById("addBtn");
       const billTablePanel = document.getElementById("billTablePanel");
       const billTableBody = document.getElementById("billTableBody");
+      const billFilterReference = document.getElementById("billFilterReference");
+      const billFilterOperation = document.getElementById("billFilterOperation");
+      const billFilterQtyBook = document.getElementById("billFilterQtyBook");
+      const billFilterRate = document.getElementById("billFilterRate");
+      const billFilterQtyCompleted = document.getElementById("billFilterQtyCompleted");
+      const billFilterTotalValue = document.getElementById("billFilterTotalValue");
       const homeBtn = document.querySelector(".home-btn");
       const adhocPendingPanel = document.getElementById("adhocPendingPanel");
       const adhocOrderSelect = document.getElementById("adhocOrderSelect");
@@ -240,9 +255,18 @@
       let currentAdhocOrder = null;
       let currentAdhocOperationsData = [];
       let adhocPendingQtyCache = {};
+      let filteredBillRowIndices = [];
       // Store clientName and jobTitle per job number
       // Structure: { jobNumber: { clientName: '', jobTitle: '' } }
       let jobDetailsMap = {};
+      let billFilterState = {
+        reference: '',
+        operation: '',
+        qtyBook: '',
+        rate: '',
+        qtyCompleted: '',
+        totalValue: '',
+      };
       // Packaging segment: per operation max "qty to add" = totalQty*0.05 + that op's pending. Key: jobNumber, value: totalQty or null.
       let jobPackagingTotalQtyMap = {};
 
@@ -1803,9 +1827,37 @@
       function updatePullInSeriesCheckboxState() {
         const pullInSeriesCheckbox = document.getElementById('pullInSeriesCheckbox');
         if (pullInSeriesCheckbox) {
-          // Disable if there's any data in billData, enable if empty
-          pullInSeriesCheckbox.disabled = billData.length > 0;
+          // Keep enabled even when Bill Details has rows.
+          pullInSeriesCheckbox.disabled = false;
         }
+      }
+
+      function containsFilterValue(text, filterValue) {
+        if (!filterValue) return true;
+        return String(text).toLowerCase().includes(String(filterValue).toLowerCase());
+      }
+
+      function getFilteredBillEntries() {
+        const entries = [];
+        billData.forEach((item, index) => {
+          if (!item.opsName || !item.opsName.trim()) return;
+          const referenceText = item.isAdhoc ? `Ad-hoc: ${item.adhocLabel || '-'}` : item.jobNumber;
+          const qtyBookText = Number(item.qtyBook ?? 0).toFixed(4);
+          const rateText = (Number(item.valuePerBook) || 0).toFixed(8);
+          const qtyCompletedText = String(item.qtyCompleted ?? '');
+          const totalValueText = (Number(item.totalValue) || 0).toFixed(4);
+
+          const matches =
+            containsFilterValue(referenceText, billFilterState.reference) &&
+            containsFilterValue(item.opsName, billFilterState.operation) &&
+            containsFilterValue(qtyBookText, billFilterState.qtyBook) &&
+            containsFilterValue(rateText, billFilterState.rate) &&
+            containsFilterValue(qtyCompletedText, billFilterState.qtyCompleted) &&
+            containsFilterValue(totalValueText, billFilterState.totalValue);
+
+          if (matches) entries.push({ item, index });
+        });
+        return entries;
       }
 
       // Function to refresh bill table with accumulated data
@@ -1816,16 +1868,13 @@
           billTableBody.innerHTML = "";
           
           let totalValueSum = 0;
-          
-          billData.forEach((item, index) => {
-            // Skip items without opsName (legacy data)
-            if (!item.opsName || !item.opsName.trim()) {
-              console.warn('Skipping item without opsName:', item);
-              return;
-            }
+          filteredBillRowIndices = [];
+          const filteredEntries = getFilteredBillEntries();
             
+          filteredEntries.forEach(({ item, index }) => {
             const totalValue = Number(item.totalValue) || 0;
             totalValueSum += totalValue;
+            filteredBillRowIndices.push(index);
             
             const row = document.createElement("tr");
             row.setAttribute('data-bill-index', index);
@@ -1955,6 +2004,21 @@
           }
         });
       }
+
+      [
+        [billFilterReference, 'reference'],
+        [billFilterOperation, 'operation'],
+        [billFilterQtyBook, 'qtyBook'],
+        [billFilterRate, 'rate'],
+        [billFilterQtyCompleted, 'qtyCompleted'],
+        [billFilterTotalValue, 'totalValue'],
+      ].forEach(([input, key]) => {
+        if (!input) return;
+        input.addEventListener('input', () => {
+          billFilterState[key] = (input.value || '').trim();
+          refreshBillTable();
+        });
+      });
 
       // Function to clear all data with confirmation
       async function clearAllDataWithConfirmation() {
