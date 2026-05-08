@@ -165,6 +165,9 @@ export const workAPI = {
     method: 'POST',
     body: { adhocOrderId, contractorId, operations }
   }),
+  // Fetch ALL Contractor_WD entries not yet in a bill, for a contractor (all jobs + adhoc)
+  getAllUnsaved: (contractorId) =>
+    apiCall(`/work/unsaved/all/${encodeURIComponent(contractorId)}`),
   // Fetch Contractor_WD entries not yet in a bill, for a job
   getUnsaved: (contractorId, jobNumber) =>
     apiCall(`/work/unsaved/${encodeURIComponent(contractorId)}/${encodeURIComponent(jobNumber)}`),

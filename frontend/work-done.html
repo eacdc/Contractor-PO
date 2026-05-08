@@ -349,6 +349,86 @@
         }
       }
 
+      // Fetch ALL unsaved Contractor_WD entries for a contractor and load into Bill Details
+      async function loadAllUnsavedForContractor(contractorId) {
+        if (!contractorId) return;
+        try {
+          const groups = await workAPI.getAllUnsaved(contractorId);
+          if (!groups || groups.length === 0) return;
+          let addedAny = false;
+          for (const group of groups) {
+            if (group.isAdhoc) {
+              const { adhocOrderId, adhocLabel } = group;
+              for (const item of (group.items || [])) {
+                const already = billData.some(bd =>
+                  bd.isAdhoc && bd.adhocOrderId === adhocOrderId &&
+                  (String(bd.opId) === String(item.opsId) || String(bd.opsId) === String(item.opsId)) &&
+                  bd.opsName === item.opsName &&
+                  parseFloat(Number(bd.valuePerBook).toFixed(2)) === parseFloat(Number(item.valuePerBook).toFixed(2))
+                );
+                if (already) continue;
+                billData.push({
+                  jobNumber: '',
+                  opId: item.opsId,
+                  opsId: item.opsId,
+                  opsName: item.opsName,
+                  qtyBook: item.qtyBook || 1,
+                  rate: item.valuePerBook,
+                  qtyCompleted: item.qtyCompleted,
+                  totalValue: item.totalValue,
+                  valuePerBook: item.valuePerBook,
+                  pendingOpsQty: 0,
+                  isAdhoc: true,
+                  adhocOrderId,
+                  adhocLabel,
+                  fromContractorWD: true
+                });
+                addedAny = true;
+              }
+            } else {
+              const { jobNumber, clientName, jobTitle } = group;
+              if (!jobDetailsMap[jobNumber]) {
+                jobDetailsMap[jobNumber] = { clientName, jobTitle };
+              }
+              for (const item of (group.items || [])) {
+                const already = billData.some(bd =>
+                  !bd.isAdhoc && bd.jobNumber === jobNumber &&
+                  (String(bd.opId) === String(item.opsId) || String(bd.opsId) === String(item.opsId)) &&
+                  bd.opsName === item.opsName &&
+                  parseFloat(Number(bd.valuePerBook).toFixed(2)) === parseFloat(Number(item.valuePerBook).toFixed(2))
+                );
+                if (already) continue;
+                billData.push({
+                  jobNumber,
+                  opId: item.opsId,
+                  opsId: item.opsId,
+                  opsName: item.opsName,
+                  qtyBook: item.qtyBook || 0,
+                  rate: item.valuePerBook,
+                  qtyCompleted: item.qtyCompleted,
+                  totalValue: item.totalValue,
+                  valuePerBook: item.valuePerBook,
+                  pendingOpsQty: 0,
+                  isAdhoc: false,
+                  adhocOrderId: '',
+                  adhocLabel: '',
+                  fromContractorWD: true
+                });
+                addedAny = true;
+              }
+            }
+          }
+          if (addedAny) {
+            hasUnsavedBillData = true;
+            refreshBillTable();
+            updateSubmitButtonState();
+            if (billTablePanel) billTablePanel.classList.remove('panel-collapsed');
+          }
+        } catch (e) {
+          console.error('Error loading all unsaved work for contractor:', e);
+        }
+      }
+
       // Enable/disable Submit button based on Bill Details content
       function updateSubmitButtonState() {
         if (submitBtn) {
@@ -518,7 +598,7 @@
 
       // Contractor change: update context; if there is data in the page ask for confirmation then clear
       if (contractorSelect) {
-        contractorSelect.addEventListener('change', () => {
+        contractorSelect.addEventListener('change', async () => {
           const newId = contractorSelect.value || null;
           if (newId === currentContractor) return;
 
@@ -528,7 +608,6 @@
               'Changing the contractor will clear all current operations and bill data. Continue?'
             );
             if (!ok) {
-              // Revert dropdown to previous value
               contractorSelect.value = currentContractor || '';
               return;
             }
@@ -537,6 +616,11 @@
           currentContractor = newId;
           clearAllData();
           updateAdhocAddButtonState();
+
+          // Auto-load any saved-but-not-yet-submitted work for the newly selected contractor
+          if (newId) {
+            await loadAllUnsavedForContractor(newId);
+          }
         });
       }
       
@@ -1875,16 +1959,15 @@
       // Function to clear all data with confirmation
       async function clearAllDataWithConfirmation() {
         if (hasUnsavedBillData && billData.length > 0) {
-          const confirmed = confirm("You have un-submitted bill items. Do you want to submit them before clearing? Click OK to submit, Cancel to discard.");
+          const confirmed = confirm("You have un-submitted bill items. Submit them before leaving?\n\nOK = Submit  |  Cancel = Leave without submitting");
           if (confirmed) {
             await submitBill();
-            return true;
           } else {
-            const discardConfirmed = confirm("Are you sure you want to discard all un-submitted bill items?");
-            if (!discardConfirmed) return false;
+            clearAllData();
           }
+        } else {
+          clearAllData();
         }
-        clearAllData();
         return true;
       }
 
@@ -2086,23 +2169,13 @@
       }
 
       // Handle browser back/reload events
-      window.addEventListener('beforeunload', (e) => {
-        if (hasUnsavedBillData) {
-          e.preventDefault();
-          e.returnValue = 'You have unsaved bill data. Are you sure you want to leave?';
-          return e.returnValue;
-        }
-      });
-
-      // Handle home button click
+      // Handle home button click — single confirmation popup
       if (homeBtn) {
         homeBtn.addEventListener("click", async (e) => {
-          if (hasUnsavedBillData) {
+          if (hasUnsavedBillData && billData.length > 0) {
             e.preventDefault();
-            const proceed = await clearAllDataWithConfirmation();
-            if (proceed) {
-              window.location.href = homeBtn.href;
-            }
+            await clearAllDataWithConfirmation();
+            window.location.href = homeBtn.href;
           }
         });
       }
