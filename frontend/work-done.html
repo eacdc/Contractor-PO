@@ -279,95 +279,81 @@
         }
       }
 
-      // Fetch Contractor_WD unsaved items for a job and merge into billData + Bill Details
+      function buildBillRowFromUnsavedItem(item, { jobNumber = '', isAdhoc = false, adhocOrderId = '', adhocLabel = '' } = {}) {
+        return {
+          jobNumber: isAdhoc ? '' : jobNumber,
+          opId: item.opsId,
+          opsId: item.opsId,
+          opsName: item.opsName,
+          qtyBook: item.qtyBook || (isAdhoc ? 1 : 0),
+          rate: item.valuePerBook,
+          qtyCompleted: item.qtyCompleted,
+          totalValue: item.totalValue,
+          valuePerBook: item.valuePerBook,
+          pendingOpsQty: 0,
+          isAdhoc,
+          adhocOrderId,
+          adhocLabel,
+          fromContractorWD: true
+        };
+      }
+
+      // Sync Bill Details rows for a job from Contractor_WD unsaved entries (backend is source of truth)
       async function loadUnsavedForJob(contractorId, jobNumber) {
         try {
           const result = await workAPI.getUnsaved(contractorId, jobNumber);
-          if (!result || !result.items || result.items.length === 0) return;
-          const clientName = result.clientName || '';
-          const jobTitle = result.jobTitle || '';
-          // Store job details if not already known
+          const clientName = result?.clientName || '';
+          const jobTitle = result?.jobTitle || '';
           if (!jobDetailsMap[jobNumber]) {
             jobDetailsMap[jobNumber] = { clientName, jobTitle };
           }
-          let addedAny = false;
-          for (const item of result.items) {
-            // Avoid duplicates already in billData for this job+opsId
-            const already = billData.some(bd =>
-              !bd.isAdhoc && bd.jobNumber === jobNumber &&
-              (String(bd.opId) === String(item.opsId) || String(bd.opsId) === String(item.opsId)) &&
-              bd.opsName === item.opsName &&
-              parseFloat(Number(bd.valuePerBook).toFixed(2)) === parseFloat(Number(item.valuePerBook).toFixed(2))
-            );
-            if (already) continue;
-            billData.push({
-              jobNumber,
-              opId: item.opsId,
-              opsId: item.opsId,
-              opsName: item.opsName,
-              qtyBook: item.qtyBook || 0,
-              rate: item.valuePerBook,
-              qtyCompleted: item.qtyCompleted,
-              totalValue: item.totalValue,
-              valuePerBook: item.valuePerBook,
-              pendingOpsQty: 0,
-              isAdhoc: false,
-              adhocOrderId: '',
-              adhocLabel: '',
-              fromContractorWD: true
-            });
-            addedAny = true;
-          }
-          if (addedAny) {
-            hasUnsavedBillData = true;
+
+          // Drop stale auto-loaded rows for this job, then re-add from backend
+          billData = billData.filter(bd => !( !bd.isAdhoc && bd.jobNumber === jobNumber && bd.fromContractorWD));
+
+          const items = result?.items || [];
+          if (items.length === 0) {
             refreshBillTable();
             updateSubmitButtonState();
-            if (billTablePanel) billTablePanel.classList.remove('panel-collapsed');
+            return;
           }
+
+          for (const item of items) {
+            billData.push(buildBillRowFromUnsavedItem(item, { jobNumber }));
+          }
+
+          hasUnsavedBillData = true;
+          refreshBillTable();
+          updateSubmitButtonState();
+          if (billTablePanel) billTablePanel.classList.remove('panel-collapsed');
         } catch (e) {
           console.error('Error loading unsaved work for job:', e);
         }
       }
 
-      // Fetch unsaved adhoc items and merge into billData
+      // Sync Bill Details rows for an ad-hoc order from Contractor_WD unsaved entries
       async function loadUnsavedForAdhoc(contractorId, adhocOrderId) {
         try {
           const result = await workAPI.getUnsavedAdhoc(contractorId, adhocOrderId);
-          if (!result || !result.items || result.items.length === 0) return;
-          const adhocLabel = result.adhocLabel || adhocOrderId;
-          let addedAny = false;
-          for (const item of result.items) {
-            const already = billData.some(bd =>
-              bd.isAdhoc && bd.adhocOrderId === adhocOrderId &&
-              (String(bd.opId) === String(item.opsId) || String(bd.opsId) === String(item.opsId)) &&
-              bd.opsName === item.opsName &&
-              parseFloat(Number(bd.valuePerBook).toFixed(2)) === parseFloat(Number(item.valuePerBook).toFixed(2))
-            );
-            if (already) continue;
-            billData.push({
-              jobNumber: '',
-              opId: item.opsId,
-              opsId: item.opsId,
-              opsName: item.opsName,
-              qtyBook: item.qtyBook || 1,
-              rate: item.valuePerBook,
-              qtyCompleted: item.qtyCompleted,
-              totalValue: item.totalValue,
-              valuePerBook: item.valuePerBook,
-              pendingOpsQty: 0,
-              isAdhoc: true,
-              adhocOrderId,
-              adhocLabel,
-              fromContractorWD: true
-            });
-            addedAny = true;
-          }
-          if (addedAny) {
-            hasUnsavedBillData = true;
+          const adhocLabel = result?.adhocLabel || adhocOrderId;
+
+          billData = billData.filter(bd => !(bd.isAdhoc && bd.adhocOrderId === adhocOrderId && bd.fromContractorWD));
+
+          const items = result?.items || [];
+          if (items.length === 0) {
             refreshBillTable();
             updateSubmitButtonState();
-            if (billTablePanel) billTablePanel.classList.remove('panel-collapsed');
+            return;
           }
+
+          for (const item of items) {
+            billData.push(buildBillRowFromUnsavedItem(item, { isAdhoc: true, adhocOrderId, adhocLabel }));
+          }
+
+          hasUnsavedBillData = true;
+          refreshBillTable();
+          updateSubmitButtonState();
+          if (billTablePanel) billTablePanel.classList.remove('panel-collapsed');
         } catch (e) {
           console.error('Error loading unsaved ad-hoc work:', e);
         }
@@ -378,36 +364,21 @@
         if (!contractorId) return;
         try {
           const groups = await workAPI.getAllUnsaved(contractorId);
-          if (!groups || groups.length === 0) return;
-          let addedAny = false;
+
+          // Replace all auto-loaded rows with fresh backend data
+          billData = billData.filter(bd => !bd.fromContractorWD);
+
+          if (!groups || groups.length === 0) {
+            refreshBillTable();
+            updateSubmitButtonState();
+            return;
+          }
+
           for (const group of groups) {
             if (group.isAdhoc) {
               const { adhocOrderId, adhocLabel } = group;
               for (const item of (group.items || [])) {
-                const already = billData.some(bd =>
-                  bd.isAdhoc && bd.adhocOrderId === adhocOrderId &&
-                  (String(bd.opId) === String(item.opsId) || String(bd.opsId) === String(item.opsId)) &&
-                  bd.opsName === item.opsName &&
-                  parseFloat(Number(bd.valuePerBook).toFixed(2)) === parseFloat(Number(item.valuePerBook).toFixed(2))
-                );
-                if (already) continue;
-                billData.push({
-                  jobNumber: '',
-                  opId: item.opsId,
-                  opsId: item.opsId,
-                  opsName: item.opsName,
-                  qtyBook: item.qtyBook || 1,
-                  rate: item.valuePerBook,
-                  qtyCompleted: item.qtyCompleted,
-                  totalValue: item.totalValue,
-                  valuePerBook: item.valuePerBook,
-                  pendingOpsQty: 0,
-                  isAdhoc: true,
-                  adhocOrderId,
-                  adhocLabel,
-                  fromContractorWD: true
-                });
-                addedAny = true;
+                billData.push(buildBillRowFromUnsavedItem(item, { isAdhoc: true, adhocOrderId, adhocLabel }));
               }
             } else {
               const { jobNumber, clientName, jobTitle } = group;
@@ -415,39 +386,15 @@
                 jobDetailsMap[jobNumber] = { clientName, jobTitle };
               }
               for (const item of (group.items || [])) {
-                const already = billData.some(bd =>
-                  !bd.isAdhoc && bd.jobNumber === jobNumber &&
-                  (String(bd.opId) === String(item.opsId) || String(bd.opsId) === String(item.opsId)) &&
-                  bd.opsName === item.opsName &&
-                  parseFloat(Number(bd.valuePerBook).toFixed(2)) === parseFloat(Number(item.valuePerBook).toFixed(2))
-                );
-                if (already) continue;
-                billData.push({
-                  jobNumber,
-                  opId: item.opsId,
-                  opsId: item.opsId,
-                  opsName: item.opsName,
-                  qtyBook: item.qtyBook || 0,
-                  rate: item.valuePerBook,
-                  qtyCompleted: item.qtyCompleted,
-                  totalValue: item.totalValue,
-                  valuePerBook: item.valuePerBook,
-                  pendingOpsQty: 0,
-                  isAdhoc: false,
-                  adhocOrderId: '',
-                  adhocLabel: '',
-                  fromContractorWD: true
-                });
-                addedAny = true;
+                billData.push(buildBillRowFromUnsavedItem(item, { jobNumber }));
               }
             }
           }
-          if (addedAny) {
-            hasUnsavedBillData = true;
-            refreshBillTable();
-            updateSubmitButtonState();
-            if (billTablePanel) billTablePanel.classList.remove('panel-collapsed');
-          }
+
+          hasUnsavedBillData = billData.length > 0;
+          refreshBillTable();
+          updateSubmitButtonState();
+          if (billData.length > 0 && billTablePanel) billTablePanel.classList.remove('panel-collapsed');
         } catch (e) {
           console.error('Error loading all unsaved work for contractor:', e);
         }
