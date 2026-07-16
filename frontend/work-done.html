@@ -269,6 +269,40 @@
       };
       // Packaging segment: per operation max "qty to add" = totalQty*0.05 + that op's pending. Key: jobNumber, value: totalQty or null.
       let jobPackagingTotalQtyMap = {};
+      let singleJobQtyListenersAttached = false;
+
+      // Reset UI state when starting a new job search (typed qty fields, series panels, local pending cache).
+      function prepareForWorkSearch(jobNumbersToLoad) {
+        const jobSet = new Set((jobNumbersToLoad || []).map(j => String(j).trim()).filter(Boolean));
+
+        pendingQtyCache = {};
+        resetAllCheckboxes();
+        if (workDoneWarning) workDoneWarning.textContent = '';
+
+        const multipleJobsContainer = document.getElementById('multipleJobsWorkContainer');
+        if (multipleJobsContainer) {
+          multipleJobsContainer.innerHTML = '';
+          multipleJobsContainer.style.display = 'none';
+        }
+
+        seriesJobs = [];
+        currentOperationsData = [];
+
+        if (opsPendingBody) opsPendingBody.innerHTML = '';
+        if (addBtn) addBtn.style.display = 'none';
+
+        // Drop auto-loaded bill rows for jobs outside this search; reload via loadUnsavedForJob.
+        if (jobSet.size > 0) {
+          billData = billData.filter(bd => {
+            if (bd.isAdhoc) return true;
+            if (!bd.fromContractorWD) return true;
+            return jobSet.has(String(bd.jobNumber || '').trim());
+          });
+          hasUnsavedBillData = billData.length > 0;
+          refreshBillTable();
+          updateSubmitButtonState();
+        }
+      }
 
       // Load all operations on page load
       async function loadOperations() {
@@ -587,11 +621,6 @@
           currentContractor = newId;
           clearAllData();
           updateAdhocAddButtonState();
-
-          // Auto-load any saved-but-not-yet-submitted work for the newly selected contractor
-          if (newId) {
-            await loadAllUnsavedForContractor(newId);
-          }
         });
       }
       
@@ -1280,16 +1309,18 @@
               currentSeriesId = null;
             }
 
+            prepareForWorkSearch(jobNumbersToLoad);
+
+            const enteringSeriesMode = isSeriesMode && jobNumbersToLoad.length > 1;
+
             // Load operations for all jobs
-            seriesJobs = [];
             const multipleJobsContainer = document.getElementById('multipleJobsWorkContainer');
             
-            if (isSeriesMode && jobNumbersToLoad.length > 1) {
+            if (enteringSeriesMode) {
               // Hide single job panel, show multiple jobs container
               opsPendingPanel.style.display = 'none'; // Hide completely in series mode
               if (multipleJobsContainer) {
                 multipleJobsContainer.style.display = 'block';
-                multipleJobsContainer.innerHTML = '';
               }
               
               // Load each job
@@ -1352,11 +1383,9 @@
                 multipleJobsContainer.appendChild(addAllButtonRow);
               }
             } else {
-              // Single job mode
+              // Single job mode (series DOM already cleared in prepareForWorkSearch)
               isSeriesMode = false;
-              if (multipleJobsContainer) {
-                multipleJobsContainer.style.display = 'none';
-              }
+              currentSeriesId = null;
               
               // Show Operations Pending panel for single job mode
               opsPendingPanel.style.display = 'block';
@@ -1444,15 +1473,23 @@
       }
 
       // Non-Packaging: cap each row at pending. Packaging: cap each row at totalQty*0.05 + that op's pending.
+      // Single delegated listener on the single-job panel only (avoids duplicate handlers + hidden series inputs).
       function attachQtyListeners() {
-      document.querySelectorAll(".work-qty-input").forEach((input) => {
-        input.addEventListener("input", () => {
-          const row = input.closest("tr");
-          const pendingCell = row?.querySelector(".pending-cell");
+        if (singleJobQtyListenersAttached || !opsPendingTable) return;
+        singleJobQtyListenersAttached = true;
+
+        opsPendingTable.addEventListener('input', (e) => {
+          const input = e.target;
+          if (!input.classList.contains('work-qty-input')) return;
+          if (isSeriesMode) return;
+          if (input.dataset.job && currentJobNumber && input.dataset.job !== currentJobNumber) return;
+
+          const row = input.closest('tr');
+          const pendingCell = row?.querySelector('.pending-cell');
           if (!pendingCell) return;
 
-          const pending = parseFloat(pendingCell.textContent || "0") || 0;
-          let value = parseFloat(input.value || "0");
+          const pending = parseFloat(pendingCell.textContent || '0') || 0;
+          const value = parseFloat(input.value || '0');
           const jobNum = input.dataset.job || currentJobNumber;
           const packagingTotalQty = jobNum ? jobPackagingTotalQtyMap[jobNum] : null;
           const maxForRow = packagingTotalQty != null
@@ -1463,14 +1500,13 @@
             input.value = String(Math.round(maxForRow));
             if (workDoneWarning) {
               workDoneWarning.textContent = packagingTotalQty != null
-                ? "Packaging segment: qty to add cannot exceed (total qty × 5% + pending) for this operation. Value limited."
-                : "Entered quantity cannot exceed pending quantity. It has been limited to the pending qty.";
+                ? 'Packaging segment: qty to add cannot exceed (total qty × 5% + pending) for this operation. Value limited.'
+                : 'Entered quantity cannot exceed pending quantity. It has been limited to the pending qty.';
             }
-          } else {
-            if (workDoneWarning) workDoneWarning.textContent = "";
+          } else if (workDoneWarning) {
+            workDoneWarning.textContent = '';
           }
         });
-      });
       }
 
       // Hide ADD/SAVE button and Submit button initially
@@ -1497,8 +1533,10 @@
           }
           currentContractor = selectedContractorId;
 
-          // Collect qty inputs
-          const qtyInputs = document.querySelectorAll(".work-qty-input");
+          // Collect qty inputs from the single-job panel only (never hidden series rows)
+          const qtyInputs = opsPendingPanel
+            ? opsPendingPanel.querySelectorAll(`.work-qty-input[data-job="${currentJobNumber}"]`)
+            : [];
           const operations = [];
           const qtyToAddMap = {}; // for local UI update
 
@@ -1994,15 +2032,13 @@
         jobDetailsMap = {};
         currentAdhocOrder = null;
         currentAdhocOperationsData = [];
+        singleJobQtyListenersAttached = false;
 
-        // Reset series mode
-        if (isSeriesMode) {
-          const mc = document.getElementById('multipleJobsWorkContainer');
-          if (mc) { mc.innerHTML = ''; mc.style.display = 'none'; }
-          seriesJobs = [];
-          isSeriesMode = false;
-          currentSeriesId = null;
-        }
+        const mc = document.getElementById('multipleJobsWorkContainer');
+        if (mc) { mc.innerHTML = ''; mc.style.display = 'none'; }
+        seriesJobs = [];
+        isSeriesMode = false;
+        currentSeriesId = null;
         resetAllCheckboxes();
 
         opsPendingPanel.style.display = 'block';

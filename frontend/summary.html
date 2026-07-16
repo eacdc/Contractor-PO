@@ -123,6 +123,44 @@
           grid-template-columns: 1fr;
         }
       }
+
+      .intro-row {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+
+      .export-controls {
+        display: flex;
+        align-items: flex-end;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-left: auto;
+      }
+
+      .export-controls label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        font-size: 0.8rem;
+        color: var(--text-muted);
+      }
+
+      .export-controls input[type="date"] {
+        border: 1px solid var(--border-subtle);
+        background: rgba(15, 23, 42, 0.6);
+        color: var(--text-main);
+        border-radius: 8px;
+        padding: 6px 10px;
+        min-width: 140px;
+      }
+
+      .export-controls button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
     </style>
   </head>
   <body>
@@ -154,8 +192,23 @@
 
       <main class="app-main app-main--home">
         <section class="intro">
-          <h2>Summary</h2>
-          <p>Overview of total price, total cost, GP%, trend and job-wise GP.</p>
+          <div class="intro-row">
+            <div>
+              <h2>Summary</h2>
+              <p>Overview of total price, total cost, GP%, trend and job-wise GP.</p>
+            </div>
+            <div class="export-controls">
+              <label for="exportStartDate">
+                Start Date
+                <input type="date" id="exportStartDate" />
+              </label>
+              <label for="exportEndDate">
+                End Date
+                <input type="date" id="exportEndDate" />
+              </label>
+              <button type="button" id="exportBtn" class="header-btn">Export</button>
+            </div>
+          </div>
         </section>
 
         <section class="panel">
@@ -314,7 +367,61 @@
       const focusTotalPriceBtn = document.getElementById("focusTotalPriceBtn");
       const focusTotalCostBtn = document.getElementById("focusTotalCostBtn");
       const focusGpBtn = document.getElementById("focusGpBtn");
+      const exportStartDate = document.getElementById("exportStartDate");
+      const exportEndDate = document.getElementById("exportEndDate");
+      const exportBtn = document.getElementById("exportBtn");
       let allRows = [];
+
+      function formatYmd(dateObj) {
+        const year = dateObj.getFullYear();
+        const month = String(dateObj.getMonth() + 1).padStart(2, "0");
+        const day = String(dateObj.getDate()).padStart(2, "0");
+        return `${year}-${month}-${day}`;
+      }
+
+      function setDefaultExportDates() {
+        const today = new Date();
+        const oneMonthAgo = new Date(today);
+        oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+        exportEndDate.value = formatYmd(today);
+        exportStartDate.value = formatYmd(oneMonthAgo);
+      }
+
+      async function handleExport() {
+        const startDate = exportStartDate.value;
+        const endDate = exportEndDate.value;
+        if (!startDate || !endDate) {
+          summaryWarning.textContent = "Please select both start and end dates.";
+          return;
+        }
+        if (startDate > endDate) {
+          summaryWarning.textContent = "Start date must be before end date.";
+          return;
+        }
+
+        summaryWarning.textContent = "";
+        const originalLabel = exportBtn.textContent;
+        exportBtn.disabled = true;
+        exportBtn.textContent = "Exporting...";
+
+        try {
+          const blob = await summaryAPI.exportJobSummary(startDate, endDate);
+          const url = URL.createObjectURL(blob);
+          const anchor = document.createElement("a");
+          anchor.href = url;
+          anchor.download = `Contractor-Job-Summary-${startDate}_to_${endDate}.xlsx`;
+          anchor.rel = "noopener";
+          document.body.appendChild(anchor);
+          anchor.click();
+          anchor.remove();
+          URL.revokeObjectURL(url);
+        } catch (error) {
+          summaryWarning.textContent = error?.message || "Failed to export summary data.";
+        } finally {
+          exportBtn.disabled = false;
+          exportBtn.textContent = originalLabel;
+        }
+      }
 
       function formatCurrency(value) {
         const number = Number(value || 0);
@@ -570,6 +677,7 @@
       focusTotalPriceBtn.addEventListener("click", () => totalPriceVal1.focus());
       focusTotalCostBtn.addEventListener("click", () => totalCostVal1.focus());
       focusGpBtn.addEventListener("click", () => gpVal1.focus());
+      exportBtn.addEventListener("click", handleExport);
 
       const currentYear = new Date().getFullYear();
       const recentYears = [currentYear, currentYear - 1, currentYear - 2, currentYear - 3, currentYear - 4];
@@ -578,6 +686,7 @@
       chartMonthInput.value = String(new Date().getMonth() + 1);
       chartQuarterInput.value = String(Math.floor(new Date().getMonth() / 3) + 1);
       updateChartFilterVisibility();
+      setDefaultExportDates();
       init();
     </script>
   </body>

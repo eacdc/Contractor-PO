@@ -244,7 +244,27 @@ export const summaryAPI = {
     if (month != null) params.set('month', String(month));
     if (quarter != null) params.set('quarter', String(quarter));
     return apiCall(`/summary/chart?${params.toString()}`);
-  }
+  },
+  exportJobSummary: async (startDate, endDate) => {
+    const params = new URLSearchParams();
+    if (startDate) params.set('startDate', startDate);
+    if (endDate) params.set('endDate', endDate);
+    const qs = params.toString();
+    const url = `${API_BASE_URL}/summary/export.xlsx${qs ? `?${qs}` : ''}`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      const text = await response.text();
+      let body;
+      try {
+        body = text ? JSON.parse(text) : null;
+      } catch {
+        body = text;
+      }
+      const message = body?.error || `HTTP ${response.status}`;
+      throw new Error(message);
+    }
+    return response.blob();
+  },
 };
 
 // Series API
