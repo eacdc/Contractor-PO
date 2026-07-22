@@ -216,9 +216,12 @@ export const billsAPI = {
     body: { contractorName, jobs }
   }),
   checkRoomRent: (contractorName) => apiCall(`/bills/check-roomrent/${encodeURIComponent(contractorName)}`),
-  markAsPaid: (billNumber, roomRent) => apiCall(`/bills/${billNumber}/pay`, {
+  markAsPaid: (billNumber, roomRent, contractorBillNumber) => apiCall(`/bills/${billNumber}/pay`, {
     method: 'PATCH',
-    body: roomRent !== undefined ? { roomRent } : {}
+    body: {
+      ...(roomRent !== undefined ? { roomRent } : {}),
+      contractorBillNumber,
+    }
   }),
   delete: (billNumber) => apiCall(`/bills/${billNumber}`, {
     method: 'DELETE'

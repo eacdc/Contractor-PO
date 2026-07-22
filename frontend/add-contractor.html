@@ -76,6 +76,7 @@
               <table class="data-table" id="contractorsTable">
                 <thead>
                   <tr>
+                    <th>ID</th>
                     <th>Contractor Name</th>
                     <th>Creation Date</th>
                     <th class="password-column-header" style="display: none;">
@@ -87,7 +88,7 @@
                 </thead>
                 <tbody id="contractorsTableBody">
                   <tr>
-                    <td colspan="4" style="text-align: center; color: var(--text-muted);">
+                    <td colspan="5" style="text-align: center; color: var(--text-muted);">
                       Loading contractors...
                     </td>
                   </tr>
@@ -131,6 +132,12 @@
         });
       }
 
+      function formatShortId(shortId) {
+        const n = Number(shortId);
+        if (!Number.isFinite(n) || n < 1) return '—';
+        return String(n).padStart(3, '0');
+      }
+
       // Load and display contractors
       async function loadContractors() {
         try {
@@ -139,7 +146,7 @@
           if (contractors.length === 0) {
             contractorsTableBody.innerHTML = `
               <tr>
-                <td colspan="4" style="text-align: center; color: var(--text-muted);">
+                <td colspan="5" style="text-align: center; color: var(--text-muted);">
                   No contractors found. Add your first contractor above.
                 </td>
               </tr>
@@ -152,6 +159,7 @@
             const pwd = contractor.password != null && contractor.password !== '' ? contractor.password : '—';
             return `
             <tr data-id="${contractor._id}">
+              <td style="font-variant-numeric: tabular-nums; font-weight: 600;">${formatShortId(contractor.shortId)}</td>
               <td>
                 <span class="contractor-name-display">${contractor.name}</span>
                 <input type="text" class="contractor-name-edit" value="${contractor.name}" style="display: none; width: 100%;">
@@ -172,7 +180,7 @@
           console.error('Error loading contractors:', error);
           contractorsTableBody.innerHTML = `
             <tr>
-              <td colspan="4" style="text-align: center; color: #ef4444;">
+              <td colspan="5" style="text-align: center; color: #ef4444;">
                 Error loading contractors. Please refresh the page.
               </td>
             </tr>

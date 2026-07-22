@@ -832,45 +832,41 @@
         });
       }
 
-      async function markBillAsPaid(billNumber) {
+      async function markBillAsPaid(billNumber, contractorBillNumber, roomRentOverride) {
         try {
           // Get the bill to find contractor name
           const bill = await billsAPI.getByBillNumber(billNumber);
           const contractorName = bill.contractorName;
           
-          // Check if contractor has paid bill with roomRent in last 30 days
-          const roomRentCheck = await billsAPI.checkRoomRent(contractorName);
-          let roomRent = 0;
-          
-          if (!roomRentCheck.hasRoomRent) {
-            // Show custom modal to add room rent with Skip option
-            const roomRentValue = await showRoomRentModal(contractorName);
+          let roomRent = roomRentOverride;
+          if (roomRent === undefined) {
+            // Check if contractor has paid bill with roomRent in last 30 days
+            const roomRentCheck = await billsAPI.checkRoomRent(contractorName);
+            roomRent = 0;
             
-            if (roomRentValue === null) {
-              // User cancelled
-              return;
+            if (!roomRentCheck.hasRoomRent) {
+              // Show custom modal to add room rent with Skip option
+              const roomRentValue = await showRoomRentModal(contractorName);
+              
+              if (roomRentValue === null) {
+                // User cancelled
+                return false;
+              }
+              
+              roomRent = roomRentValue;
             }
-            
-            roomRent = roomRentValue;
           }
           
-          // Mark bill as paid with room rent
-          await billsAPI.markAsPaid(billNumber, roomRent);
-          
-          // Reload bills to refresh the table
-          await loadBills();
-          warningEl.textContent = 'Bill marked as paid successfully!';
-          warningEl.style.color = '#4ade80';
-          setTimeout(() => {
-            warningEl.textContent = '';
-            warningEl.style.color = '';
-          }, 3000);
+          // Mark bill as paid with room rent + contractor bill number
+          await billsAPI.markAsPaid(billNumber, roomRent, contractorBillNumber);
+          return true;
         } catch (error) {
           console.error('Error marking bill as paid:', error);
           warningEl.textContent = error.message || 'Error marking bill as paid. Please try again.';
           setTimeout(() => {
             warningEl.textContent = '';
           }, 3000);
+          return false;
         }
       }
 
@@ -1158,7 +1154,7 @@
 
         if (filtered.length === 0) {
           tableHead.innerHTML = '';
-          const colspan = isPaid ? 5 : 8; // Paid: 5; Unpaid: 8 (checkbox + Bill Number + ... + Delete)
+          const colspan = isPaid ? 6 : 8; // Paid: 6 (incl. Contractor Bill No); Unpaid: 8
           tableBody.innerHTML =
             `<tr><td colspan="${colspan}">No ` +
             (isPaid ? 'paid' : 'unpaid') +
@@ -1170,6 +1166,7 @@
           tableHead.innerHTML = `
             <tr>
               <th>Bill Number</th>
+              <th>Contractor Bill No</th>
               <th>Paid Date</th>
               <th>Total Amount</th>
               <th>Download</th>
@@ -1210,6 +1207,7 @@
           if (isPaid) {
             tr.innerHTML = `
               <td>${bill.billNumber}</td>
+              <td style="font-variant-numeric: tabular-nums;">${bill.contractorBillNo || '—'}</td>
               <td>${formatDate(bill.paymentDate)}</td>
               <td title="${roomRent > 0 ? `Bill: ${billAmount.toFixed(2)}, Room Rent: ${roomRent.toFixed(2)}` : ''}">${totalDisplay}</td>
               <td>
@@ -1288,12 +1286,134 @@
             // Keep contractorId as value, show readable name
             opt.value = c.contractorId || c._id || c.name;
             opt.textContent = c.name;
+            if (c.shortId != null && c.shortId !== '') {
+              opt.dataset.shortId = String(c.shortId);
+            }
             contractorSelect.appendChild(opt);
           });
         } catch (err) {
           console.error('Error loading contractors', err);
           warningEl.textContent = 'Error loading contractors. Please refresh the page.';
         }
+      }
+
+      function getSelectedContractorShortId() {
+        const opt = contractorSelect.options[contractorSelect.selectedIndex];
+        const raw = opt?.dataset?.shortId;
+        const n = Number(raw);
+        return Number.isFinite(n) && n >= 1 ? n : null;
+      }
+
+      function buildContractorBillNoPreview(shortId, enteredNo) {
+        const parts = new Intl.DateTimeFormat('en-GB', {
+          timeZone: 'Asia/Kolkata',
+          month: '2-digit',
+          year: '2-digit',
+        }).formatToParts(new Date());
+        const mm = parts.find((p) => p.type === 'month')?.value || '';
+        const yy = parts.find((p) => p.type === 'year')?.value || '';
+        const no = String(enteredNo || '').trim();
+        if (!mm || !yy || !shortId || !no) return '';
+        return `${mm}_${yy}_${Number(shortId)}_${no}`;
+      }
+
+      /** Prompt for contractor bill number; returns entered value or null if cancelled. */
+      function showContractorBillNoModal({ shortId, billCount = 1 }) {
+        return new Promise((resolve) => {
+          const existing = document.getElementById('contractor-bill-no-modal');
+          if (existing) existing.remove();
+
+          const overlay = document.createElement('div');
+          overlay.id = 'contractor-bill-no-modal';
+          overlay.style.cssText = 'position:fixed;inset:0;background:rgba(2,6,23,0.85);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;z-index:10000;';
+
+          const modal = document.createElement('div');
+          modal.style.cssText = 'background:#0b1020;border-radius:18px;box-shadow:0 22px 50px rgba(15,23,42,0.9);border:1px solid rgba(156,163,175,0.25);width:min(420px,90vw);padding:24px;display:flex;flex-direction:column;gap:16px;';
+
+          const header = document.createElement('div');
+          header.innerHTML = `
+            <h2 style="margin:0;font-size:18px;font-weight:600;color:#f9fafb;">Enter Contractor Bill Number</h2>
+            <p style="margin:8px 0 0;font-size:13px;color:#9ca3af;">
+              ${billCount > 1
+                ? `This number will be applied to all <strong style="color:#f9fafb;">${billCount}</strong> selected bills.`
+                : 'Enter the contractor\'s bill number for this payment.'}
+            </p>
+          `;
+
+          const input = document.createElement('input');
+          input.type = 'text';
+          input.placeholder = 'e.g. 231';
+          input.autocomplete = 'off';
+          input.style.cssText = 'width:100%;padding:10px 12px;font-size:14px;border:1px solid rgba(156,163,175,0.25);border-radius:8px;background:#050816;color:#f9fafb;box-sizing:border-box;';
+
+          const preview = document.createElement('p');
+          preview.style.cssText = 'margin:0;font-size:13px;color:#9ca3af;min-height:1.4em;';
+          preview.textContent = 'Will be saved as: —';
+
+          const errorEl = document.createElement('p');
+          errorEl.style.cssText = 'margin:0;font-size:12px;color:#ef4444;min-height:1.2em;';
+
+          const updatePreview = () => {
+            const composed = buildContractorBillNoPreview(shortId, input.value);
+            preview.innerHTML = composed
+              ? `Will be saved as: <strong style="color:#a5b4fc;font-variant-numeric:tabular-nums;">${composed}</strong>`
+              : 'Will be saved as: —';
+            errorEl.textContent = '';
+          };
+          input.addEventListener('input', updatePreview);
+
+          const buttons = document.createElement('div');
+          buttons.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;margin-top:4px;';
+
+          const cancelBtn = document.createElement('button');
+          cancelBtn.type = 'button';
+          cancelBtn.textContent = 'Cancel';
+          cancelBtn.className = 'secondary-btn primary-btn--sm';
+
+          const confirmBtn = document.createElement('button');
+          confirmBtn.type = 'button';
+          confirmBtn.textContent = 'Confirm & Pay';
+          confirmBtn.className = 'primary-btn primary-btn--sm';
+
+          const close = (value) => {
+            overlay.remove();
+            resolve(value);
+          };
+
+          cancelBtn.addEventListener('click', () => close(null));
+          confirmBtn.addEventListener('click', () => {
+            const entered = input.value.trim();
+            if (!entered) {
+              errorEl.textContent = 'Please enter a contractor bill number.';
+              input.focus();
+              return;
+            }
+            if (!shortId) {
+              errorEl.textContent = 'Contractor ID is missing. Refresh and try again.';
+              return;
+            }
+            close(entered);
+          });
+
+          input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') confirmBtn.click();
+            if (e.key === 'Escape') close(null);
+          });
+
+          buttons.appendChild(cancelBtn);
+          buttons.appendChild(confirmBtn);
+          modal.appendChild(header);
+          modal.appendChild(input);
+          modal.appendChild(preview);
+          modal.appendChild(errorEl);
+          modal.appendChild(buttons);
+          overlay.appendChild(modal);
+          overlay.addEventListener('click', (e) => {
+            if (e.target === overlay) close(null);
+          });
+          document.body.appendChild(overlay);
+          setTimeout(() => input.focus(), 50);
+        });
       }
 
       async function loadBills() {
@@ -1337,16 +1457,35 @@
       document.getElementById('payAllSelectedBtn').addEventListener('click', async () => {
         const billNumbers = getSelectedUnpaidBillNumbers();
         if (billNumbers.length === 0) return;
-        if (!confirm(`Mark ${billNumbers.length} selected bill(s) as paid? Payment date will be set to today.`)) return;
+
+        const shortId = getSelectedContractorShortId();
+        if (!shortId) {
+          warningEl.textContent = 'Contractor ID is missing. Refresh the page and try again.';
+          warningEl.style.color = '#ef4444';
+          return;
+        }
+
+        const contractorBillNumber = await showContractorBillNoModal({
+          shortId,
+          billCount: billNumbers.length,
+        });
+        if (contractorBillNumber == null) return;
+
         warningEl.textContent = '';
         try {
+          let paidCount = 0;
           for (const billNumber of billNumbers) {
-            await billsAPI.markAsPaid(billNumber, 0);
+            // Bulk pay: skip room-rent prompt (same as before); share one contractor bill no
+            const ok = await markBillAsPaid(billNumber, contractorBillNumber, 0);
+            if (ok) paidCount += 1;
+            else break;
           }
           await loadBills();
-          warningEl.textContent = `${billNumbers.length} bill(s) marked as paid.`;
-          warningEl.style.color = '#4ade80';
-          setTimeout(() => { warningEl.textContent = ''; warningEl.style.color = ''; }, 3000);
+          if (paidCount > 0) {
+            warningEl.textContent = `${paidCount} bill(s) marked as paid.`;
+            warningEl.style.color = '#4ade80';
+            setTimeout(() => { warningEl.textContent = ''; warningEl.style.color = ''; }, 3000);
+          }
         } catch (err) {
           console.error('Error marking bills as paid:', err);
           warningEl.textContent = err.message || 'Error marking bills as paid. Please try again.';
@@ -1388,8 +1527,24 @@
         } else if (target.classList.contains('bill-pay-btn')) {
           const billNumber = target.getAttribute('data-bill');
           if (billNumber) {
-            if (confirm(`Are you sure you want to mark bill ${billNumber} as paid?`)) {
-              await markBillAsPaid(billNumber);
+            const shortId = getSelectedContractorShortId();
+            if (!shortId) {
+              warningEl.textContent = 'Contractor ID is missing. Refresh the page and try again.';
+              warningEl.style.color = '#ef4444';
+              return;
+            }
+            const contractorBillNumber = await showContractorBillNoModal({ shortId, billCount: 1 });
+            if (contractorBillNumber == null) return;
+
+            const ok = await markBillAsPaid(billNumber, contractorBillNumber);
+            if (ok) {
+              await loadBills();
+              warningEl.textContent = 'Bill marked as paid successfully!';
+              warningEl.style.color = '#4ade80';
+              setTimeout(() => {
+                warningEl.textContent = '';
+                warningEl.style.color = '';
+              }, 3000);
             }
           }
         } else if (target.classList.contains('bill-delete-btn')) {
