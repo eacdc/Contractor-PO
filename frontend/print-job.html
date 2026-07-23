@@ -201,6 +201,7 @@
 
       const COLUMNS = [
         { key: 'billNumber', label: 'Bill Number', type: 'text' },
+        { key: 'contractorBillNo', label: 'Contractor Bill No', type: 'text' },
         { key: 'contractorName', label: 'Contractor Name', type: 'text' },
         { key: 'paymentStatus', label: 'Payment Status', type: 'text' },
         { key: 'paymentDate', label: 'Payment Date', type: 'date' },
@@ -232,6 +233,7 @@
             for (const op of job.ops || []) {
               rows.push({
                 billNumber: bill.billNumber || '-',
+                contractorBillNo: bill.contractorBillNo || '-',
                 contractorName: bill.contractorName || '-',
                 paymentStatus: bill.paymentStatus || 'No',
                 paymentDate: paymentDateStr,
