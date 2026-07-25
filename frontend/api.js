@@ -223,6 +223,11 @@ export const billsAPI = {
       contractorBillNumber,
     }
   }),
+  updateContractorBillNo: (billNumber, contractorBillNumber, updateShared = true) =>
+    apiCall(`/bills/${encodeURIComponent(billNumber)}/contractor-bill-no`, {
+      method: 'PATCH',
+      body: { contractorBillNumber, updateShared },
+    }),
   delete: (billNumber) => apiCall(`/bills/${billNumber}`, {
     method: 'DELETE'
   })

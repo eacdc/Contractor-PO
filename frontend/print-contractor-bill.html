@@ -1205,9 +1205,20 @@
           }
 
           if (isPaid) {
+            const cBillNo = bill.contractorBillNo || '';
+            const cBillDisplay = cBillNo || '—';
             tr.innerHTML = `
               <td>${bill.billNumber}</td>
-              <td style="font-variant-numeric: tabular-nums;">${bill.contractorBillNo || '—'}</td>
+              <td style="font-variant-numeric: tabular-nums;">
+                <span class="contractor-bill-no-text">${cBillDisplay}</span>
+                <button
+                  type="button"
+                  class="bill-edit-contractor-bill-no-btn"
+                  data-bill="${bill.billNumber}"
+                  title="${cBillNo ? 'Edit contractor bill number' : 'Add contractor bill number'}"
+                  style="margin-left:8px;border:none;background:transparent;color:#a5b4fc;cursor:pointer;font-size:14px;padding:2px 4px;vertical-align:middle;"
+                >✏️</button>
+              </td>
               <td>${formatDate(bill.paymentDate)}</td>
               <td title="${roomRent > 0 ? `Bill: ${billAmount.toFixed(2)}, Room Rent: ${roomRent.toFixed(2)}` : ''}">${totalDisplay}</td>
               <td>
@@ -1304,12 +1315,14 @@
         return Number.isFinite(n) && n >= 1 ? n : null;
       }
 
-      function buildContractorBillNoPreview(shortId, enteredNo) {
+      function buildContractorBillNoPreview(shortId, enteredNo, paymentDate = new Date()) {
+        const d = paymentDate instanceof Date ? paymentDate : new Date(paymentDate);
+        if (Number.isNaN(d.getTime())) return '';
         const parts = new Intl.DateTimeFormat('en-GB', {
           timeZone: 'Asia/Kolkata',
           month: '2-digit',
           year: '2-digit',
-        }).formatToParts(new Date());
+        }).formatToParts(d);
         const mm = parts.find((p) => p.type === 'month')?.value || '';
         const yy = parts.find((p) => p.type === 'year')?.value || '';
         const no = String(enteredNo || '').trim();
@@ -1317,8 +1330,38 @@
         return `${mm}_${yy}_${Number(shortId)}_${no}`;
       }
 
+      function extractEnteredContractorBillNo(composed) {
+        const parts = String(composed || '').split('_');
+        if (parts.length < 4) return '';
+        return parts.slice(3).join('_');
+      }
+
+      function extractContractorBillNoPrefix(composed) {
+        const parts = String(composed || '').split('_');
+        if (parts.length < 4) return '';
+        return parts.slice(0, 3).join('_');
+      }
+
+      function countSharedContractorBillNos(contractorBillNo, contractorName) {
+        const value = String(contractorBillNo || '').trim();
+        if (!value) return 1;
+        return allBills.filter((b) => (
+          b.paymentStatus === 'Yes'
+          && String(b.contractorName || '') === String(contractorName || '')
+          && String(b.contractorBillNo || '').trim() === value
+        )).length;
+      }
+
       /** Prompt for contractor bill number; returns entered value or null if cancelled. */
-      function showContractorBillNoModal({ shortId, billCount = 1 }) {
+      function showContractorBillNoModal({
+        shortId,
+        billCount = 1,
+        initialValue = '',
+        paymentDate = null,
+        lockedPrefix = '',
+        sharedCount = 1,
+        mode = 'pay',
+      }) {
         return new Promise((resolve) => {
           const existing = document.getElementById('contractor-bill-no-modal');
           if (existing) existing.remove();
@@ -1330,21 +1373,53 @@
           const modal = document.createElement('div');
           modal.style.cssText = 'background:#0b1020;border-radius:18px;box-shadow:0 22px 50px rgba(15,23,42,0.9);border:1px solid rgba(156,163,175,0.25);width:min(420px,90vw);padding:24px;display:flex;flex-direction:column;gap:16px;';
 
+          const isEdit = mode === 'edit';
+          const title = isEdit
+            ? (initialValue || lockedPrefix ? 'Edit Contractor Bill Number' : 'Add Contractor Bill Number')
+            : 'Enter Contractor Bill Number';
+
+          let subtitle;
+          if (isEdit && sharedCount > 1) {
+            subtitle = `This contractor bill number is shared by <strong style="color:#f9fafb;">${sharedCount}</strong> paid bills. Use the checkbox below to choose whether to update all of them or only this row.`;
+          } else if (!isEdit && billCount > 1) {
+            subtitle = `This number will be applied to all <strong style="color:#f9fafb;">${billCount}</strong> selected bills.`;
+          } else if (isEdit) {
+            subtitle = lockedPrefix
+              ? 'Edit only the bill number part. The prefix is fixed.'
+              : 'Enter the bill number part. The prefix will be system-generated from payment date and contractor ID.';
+          } else {
+            subtitle = 'Enter only the contractor\'s bill number. Prefix is system-generated.';
+          }
+
           const header = document.createElement('div');
           header.innerHTML = `
-            <h2 style="margin:0;font-size:18px;font-weight:600;color:#f9fafb;">Enter Contractor Bill Number</h2>
-            <p style="margin:8px 0 0;font-size:13px;color:#9ca3af;">
-              ${billCount > 1
-                ? `This number will be applied to all <strong style="color:#f9fafb;">${billCount}</strong> selected bills.`
-                : 'Enter the contractor\'s bill number for this payment.'}
-            </p>
+            <h2 style="margin:0;font-size:18px;font-weight:600;color:#f9fafb;">${title}</h2>
+            <p style="margin:8px 0 0;font-size:13px;color:#9ca3af;">${subtitle}</p>
           `;
+
+          const previewDate = paymentDate ? new Date(paymentDate) : new Date();
+          const systemPrefix = (() => {
+            if (lockedPrefix) return lockedPrefix;
+            const composed = buildContractorBillNoPreview(shortId, 'x', previewDate);
+            return composed ? composed.replace(/_x$/, '') : '';
+          })();
+
+          const inputRow = document.createElement('div');
+          inputRow.style.cssText = 'display:flex;align-items:center;gap:6px;';
+
+          const prefixLabel = document.createElement('span');
+          prefixLabel.style.cssText = 'font-variant-numeric:tabular-nums;color:#94a3b8;font-size:14px;white-space:nowrap;user-select:none;';
+          prefixLabel.textContent = systemPrefix ? `${systemPrefix}_` : '';
 
           const input = document.createElement('input');
           input.type = 'text';
           input.placeholder = 'e.g. 231';
           input.autocomplete = 'off';
-          input.style.cssText = 'width:100%;padding:10px 12px;font-size:14px;border:1px solid rgba(156,163,175,0.25);border-radius:8px;background:#050816;color:#f9fafb;box-sizing:border-box;';
+          input.value = initialValue || '';
+          input.style.cssText = 'flex:1;min-width:0;padding:10px 12px;font-size:14px;border:1px solid rgba(156,163,175,0.25);border-radius:8px;background:#050816;color:#f9fafb;box-sizing:border-box;';
+
+          inputRow.appendChild(prefixLabel);
+          inputRow.appendChild(input);
 
           const preview = document.createElement('p');
           preview.style.cssText = 'margin:0;font-size:13px;color:#9ca3af;min-height:1.4em;';
@@ -1353,14 +1428,34 @@
           const errorEl = document.createElement('p');
           errorEl.style.cssText = 'margin:0;font-size:12px;color:#ef4444;min-height:1.2em;';
 
+          // Shared-bills option: default checked = update all sharing this contractor bill no
+          let updateSharedCheckbox = null;
+          let sharedRow = null;
+          if (isEdit && sharedCount > 1) {
+            sharedRow = document.createElement('label');
+            sharedRow.style.cssText = 'display:flex;align-items:flex-start;gap:8px;font-size:13px;color:#cbd5e1;cursor:pointer;user-select:none;';
+            updateSharedCheckbox = document.createElement('input');
+            updateSharedCheckbox.type = 'checkbox';
+            updateSharedCheckbox.checked = true;
+            updateSharedCheckbox.style.cssText = 'margin-top:2px;accent-color:#6366f1;';
+            const sharedText = document.createElement('span');
+            sharedText.innerHTML = `Also update the other <strong style="color:#f9fafb;">${sharedCount - 1}</strong> paid bill(s) that share this contractor bill number. Uncheck to change this row only.`;
+            sharedRow.appendChild(updateSharedCheckbox);
+            sharedRow.appendChild(sharedText);
+          }
+
           const updatePreview = () => {
-            const composed = buildContractorBillNoPreview(shortId, input.value);
+            const no = input.value.trim();
+            let composed = '';
+            if (no && systemPrefix) composed = `${systemPrefix}_${no}`;
+            else if (no && shortId) composed = buildContractorBillNoPreview(shortId, no, previewDate);
             preview.innerHTML = composed
               ? `Will be saved as: <strong style="color:#a5b4fc;font-variant-numeric:tabular-nums;">${composed}</strong>`
               : 'Will be saved as: —';
             errorEl.textContent = '';
           };
           input.addEventListener('input', updatePreview);
+          updatePreview();
 
           const buttons = document.createElement('div');
           buttons.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;margin-top:4px;';
@@ -1372,7 +1467,7 @@
 
           const confirmBtn = document.createElement('button');
           confirmBtn.type = 'button';
-          confirmBtn.textContent = 'Confirm & Pay';
+          confirmBtn.textContent = isEdit ? 'Save' : 'Confirm & Pay';
           confirmBtn.className = 'primary-btn primary-btn--sm';
 
           const close = (value) => {
@@ -1388,11 +1483,14 @@
               input.focus();
               return;
             }
-            if (!shortId) {
+            if (!shortId && !systemPrefix) {
               errorEl.textContent = 'Contractor ID is missing. Refresh and try again.';
               return;
             }
-            close(entered);
+            close({
+              contractorBillNumber: entered,
+              updateShared: updateSharedCheckbox ? updateSharedCheckbox.checked : true,
+            });
           });
 
           input.addEventListener('keydown', (e) => {
@@ -1403,8 +1501,9 @@
           buttons.appendChild(cancelBtn);
           buttons.appendChild(confirmBtn);
           modal.appendChild(header);
-          modal.appendChild(input);
+          modal.appendChild(inputRow);
           modal.appendChild(preview);
+          if (sharedRow) modal.appendChild(sharedRow);
           modal.appendChild(errorEl);
           modal.appendChild(buttons);
           overlay.appendChild(modal);
@@ -1412,8 +1511,67 @@
             if (e.target === overlay) close(null);
           });
           document.body.appendChild(overlay);
-          setTimeout(() => input.focus(), 50);
+          setTimeout(() => {
+            input.focus();
+            input.select();
+          }, 50);
         });
+      }
+
+      async function editPaidContractorBillNo(billNumber) {
+        try {
+          const bill = allBills.find((b) => b.billNumber === billNumber)
+            || await billsAPI.getByBillNumber(billNumber);
+          if (!bill) {
+            warningEl.textContent = 'Bill not found.';
+            warningEl.style.color = '#ef4444';
+            return;
+          }
+
+          const shortId = getSelectedContractorShortId();
+          if (!shortId) {
+            warningEl.textContent = 'Contractor ID is missing. Refresh the page and try again.';
+            warningEl.style.color = '#ef4444';
+            return;
+          }
+
+          const current = String(bill.contractorBillNo || '').trim();
+          const sharedCount = countSharedContractorBillNos(current, bill.contractorName);
+          const resultModal = await showContractorBillNoModal({
+            shortId,
+            mode: 'edit',
+            initialValue: extractEnteredContractorBillNo(current),
+            lockedPrefix: extractContractorBillNoPrefix(current),
+            paymentDate: bill.paymentDate,
+            sharedCount,
+          });
+          if (resultModal == null) return;
+
+          const result = await billsAPI.updateContractorBillNo(
+            billNumber,
+            resultModal.contractorBillNumber,
+            resultModal.updateShared !== false,
+          );
+          await loadBills();
+
+          const n = result?.updatedCount || 1;
+          warningEl.textContent = n > 1
+            ? `Contractor bill number updated on ${n} shared bills.`
+            : 'Contractor bill number saved.';
+          warningEl.style.color = '#4ade80';
+          setTimeout(() => {
+            warningEl.textContent = '';
+            warningEl.style.color = '';
+          }, 3000);
+        } catch (error) {
+          console.error('Error updating contractor bill number:', error);
+          warningEl.textContent = error.message || 'Error updating contractor bill number.';
+          warningEl.style.color = '#ef4444';
+          setTimeout(() => {
+            warningEl.textContent = '';
+            warningEl.style.color = '';
+          }, 3000);
+        }
       }
 
       async function loadBills() {
@@ -1465,11 +1623,12 @@
           return;
         }
 
-        const contractorBillNumber = await showContractorBillNoModal({
+        const contractorBillResult = await showContractorBillNoModal({
           shortId,
           billCount: billNumbers.length,
         });
-        if (contractorBillNumber == null) return;
+        if (contractorBillResult == null) return;
+        const contractorBillNumber = contractorBillResult.contractorBillNumber;
 
         warningEl.textContent = '';
         try {
@@ -1508,6 +1667,13 @@
         const target = e.target;
         if (!(target instanceof HTMLElement)) return;
 
+        const editCBillBtn = target.closest('.bill-edit-contractor-bill-no-btn');
+        if (editCBillBtn) {
+          const billNumber = editCBillBtn.getAttribute('data-bill');
+          if (billNumber) await editPaidContractorBillNo(billNumber);
+          return;
+        }
+
         if (target.classList.contains('bill-download-btn')) {
           const billNumber = target.getAttribute('data-bill');
           if (billNumber) {
@@ -1533,10 +1699,10 @@
               warningEl.style.color = '#ef4444';
               return;
             }
-            const contractorBillNumber = await showContractorBillNoModal({ shortId, billCount: 1 });
-            if (contractorBillNumber == null) return;
+            const contractorBillResult = await showContractorBillNoModal({ shortId, billCount: 1 });
+            if (contractorBillResult == null) return;
 
-            const ok = await markBillAsPaid(billNumber, contractorBillNumber);
+            const ok = await markBillAsPaid(billNumber, contractorBillResult.contractorBillNumber);
             if (ok) {
               await loadBills();
               warningEl.textContent = 'Bill marked as paid successfully!';
