@@ -130,13 +130,27 @@ export const operationsAPI = {
   },
   getCategories: () => apiCall('/operations/categories'),
   getById: (id) => apiCall(`/operations/${id}`),
-  create: (opsName, type, ratePerUnit, categories, isAdhocOp = false) => apiCall('/operations', {
+  create: (opsName, type, ratePerUnit, categories, isAdhocOp = false, link = '') => apiCall('/operations', {
     method: 'POST',
-    body: { opsName, type, ratePerUnit, isAdhocOp: !!isAdhocOp, categories: Array.isArray(categories) ? categories : (categories != null && categories !== '' ? [String(categories)] : []) }
+    body: {
+      opsName,
+      type,
+      ratePerUnit,
+      isAdhocOp: !!isAdhocOp,
+      link: link != null ? String(link).trim() : '',
+      categories: Array.isArray(categories) ? categories : (categories != null && categories !== '' ? [String(categories)] : [])
+    }
   }),
-  update: (id, opsName, type, ratePerUnit, categories, isAdhocOp = false) => apiCall(`/operations/${id}`, {
+  update: (id, opsName, type, ratePerUnit, categories, isAdhocOp = false, link = '') => apiCall(`/operations/${id}`, {
     method: 'PUT',
-    body: { opsName, type, ratePerUnit, isAdhocOp: !!isAdhocOp, categories: Array.isArray(categories) ? categories : (categories != null && categories !== '' ? [String(categories)] : []) }
+    body: {
+      opsName,
+      type,
+      ratePerUnit,
+      isAdhocOp: !!isAdhocOp,
+      link: link != null ? String(link).trim() : '',
+      categories: Array.isArray(categories) ? categories : (categories != null && categories !== '' ? [String(categories)] : [])
+    }
   }),
   delete: (id) => apiCall(`/operations/${id}`, {
     method: 'DELETE'

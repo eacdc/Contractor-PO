@@ -110,6 +110,15 @@
                   placeholder="Enter rate per unit"
                 />
               </div>
+              <div class="field">
+                <label for="newOpsLink">Link (optional)</label>
+                <input
+                  id="newOpsLink"
+                  name="newOpsLink"
+                  type="url"
+                  placeholder="https://..."
+                />
+              </div>
               <div class="add-ops-actions">
                 <button class="primary-btn primary-btn--sm" type="button" id="addNewOpsBtn">
                   Add
@@ -128,6 +137,7 @@
                     <th>Adhoc Ops</th>
                     <th>Rate/Unit</th>
                     <th>Category</th>
+                    <th>Link</th>
                     <th>Actions</th>
                   </tr>
                 </thead>
@@ -189,6 +199,7 @@
       const newOpsTypeSelect = document.getElementById("newOpsType");
       const newOpsIsAdhocCheckbox = document.getElementById("newOpsIsAdhoc");
       const newOpsRatePerUnitInput = document.getElementById("newOpsRatePerUnit");
+      const newOpsLinkInput = document.getElementById("newOpsLink");
       const newOpsCategoryTrigger = document.getElementById("newOpsCategoryTrigger");
       const newOpsCategoryPanel = document.getElementById("newOpsCategoryPanel");
       const addNewOpsBtn = document.getElementById("addNewOpsBtn");
@@ -202,6 +213,20 @@
         const div = document.createElement('div');
         div.textContent = s;
         return div.innerHTML;
+      }
+
+      function formatLinkHref(url) {
+        const raw = String(url || '').trim();
+        if (!raw) return '';
+        if (/^https?:\/\//i.test(raw)) return raw;
+        return `https://${raw}`;
+      }
+
+      function linkDisplayHtml(url) {
+        const raw = String(url || '').trim();
+        if (!raw) return '—';
+        const href = formatLinkHref(raw);
+        return `<a class="ops-link-anchor" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(raw)}</a>`;
       }
 
       function categoryCheckboxesHtml(selectedArr) {
@@ -281,6 +306,7 @@
           const type = newOpsTypeSelect.value;
           const isAdhocOp = !!(newOpsIsAdhocCheckbox && newOpsIsAdhocCheckbox.checked);
           const ratePerUnitValue = newOpsRatePerUnitInput.value.trim();
+          const link = newOpsLinkInput ? newOpsLinkInput.value.trim() : '';
           const categories = newOpsCategoryPanel
             ? Array.from(newOpsCategoryPanel.querySelectorAll('.ops-category-cb:checked')).map(cb => cb.value)
             : [];
@@ -300,7 +326,7 @@
           }
 
           try {
-            const operation = await operationsAPI.create(name, type, ratePerUnit, categories, isAdhocOp);
+            await operationsAPI.create(name, type, ratePerUnit, categories, isAdhocOp, link);
             addNewOpsWarning.textContent = "";
             addNewOpsWarning.style.color = "#4ade80";
             addNewOpsWarning.textContent = "Operation added successfully!";
@@ -314,6 +340,7 @@
             if (newOpsIsAdhocCheckbox) newOpsIsAdhocCheckbox.checked = false;
             applyAdhocTypeRule();
             newOpsRatePerUnitInput.value = "";
+            if (newOpsLinkInput) newOpsLinkInput.value = "";
             if (newOpsCategoryPanel) {
               newOpsCategoryPanel.querySelectorAll('.ops-category-cb').forEach(cb => { cb.checked = false; });
               updateCategoryTriggerLabel();
@@ -339,6 +366,7 @@
               addedOpsBody.innerHTML = operations.map(op => {
                 const cats = Array.isArray(op.categories) ? op.categories : (op.category != null && op.category !== '' ? [op.category] : []);
                 const catDisplay = cats.length ? cats.join(', ') : '—';
+                const linkValue = op.link || '';
                 return `
                 <tr data-id="${op._id}">
                   <td>
@@ -370,6 +398,10 @@
                       <button type="button" class="category-dropdown-trigger ops-category-trigger">${cats.length === 0 ? 'Select categories' : (cats.length === 1 ? '1 category' : cats.length + ' categories')}</button>
                       <div class="category-dropdown-panel ops-category-panel" style="display: none;">${categoryCheckboxesHtml(cats)}</div>
                     </div>
+                  </td>
+                  <td style="max-width: 220px; word-break: break-all;">
+                    <span class="ops-link-display">${linkDisplayHtml(linkValue)}</span>
+                    <input type="url" class="ops-link-edit" value="${escapeHtml(linkValue)}" placeholder="https://..." style="display: none; width: 100%;">
                   </td>
                   <td>
                     <button class="edit-ops-btn" data-id="${op._id}" style="margin-right: 8px;">Edit</button>
@@ -409,6 +441,8 @@
             const rateEdit = row.querySelector('.ops-rate-edit');
             const categoryDisplay = row.querySelector('.ops-category-display');
             const categoryEdit = row.querySelector('.ops-category-edit');
+            const linkDisplay = row.querySelector('.ops-link-display');
+            const linkEdit = row.querySelector('.ops-link-edit');
             const editBtn = row.querySelector('.edit-ops-btn');
             
             if (nameEdit.style.display === 'none') {
@@ -423,6 +457,8 @@
               rateEdit.style.display = 'inline-block';
               if (categoryDisplay) categoryDisplay.style.display = 'none';
               if (categoryEdit) categoryEdit.style.display = 'inline-block';
+              if (linkDisplay) linkDisplay.style.display = 'none';
+              if (linkEdit) linkEdit.style.display = 'inline-block';
               if (adhocCheckbox) {
                 typeEdit.disabled = !!adhocCheckbox.checked;
               }
@@ -440,7 +476,8 @@
               const newCategories = categoryEditEl
                 ? Array.from(categoryEditEl.querySelectorAll('.ops-category-cb:checked')).map(cb => cb.value)
                 : [];
-              await saveOpsEdit(opId, nameEdit.value.trim(), typeEdit.value, rateEdit.value.trim(), newCategories, isAdhocOp, row);
+              const newLink = linkEdit ? linkEdit.value.trim() : '';
+              await saveOpsEdit(opId, nameEdit.value.trim(), typeEdit.value, rateEdit.value.trim(), newCategories, isAdhocOp, newLink, row);
             }
           });
         });
@@ -501,7 +538,7 @@
       }
 
       // Save operation edit
-      async function saveOpsEdit(opId, newName, newType, newRatePerUnit, newCategories, isAdhocOp, row) {
+      async function saveOpsEdit(opId, newName, newType, newRatePerUnit, newCategories, isAdhocOp, newLink, row) {
         if (!newName || !newType) {
           addNewOpsWarning.style.color = '#ef4444';
           addNewOpsWarning.textContent = 'Ops Name and Type are required.';
@@ -516,8 +553,9 @@
         }
         
         const categoriesArr = Array.isArray(newCategories) ? newCategories : [];
+        const linkValue = newLink != null ? String(newLink).trim() : '';
         try {
-          await operationsAPI.update(opId, newName, newType, ratePerUnit, categoriesArr, isAdhocOp);
+          await operationsAPI.update(opId, newName, newType, ratePerUnit, categoriesArr, isAdhocOp, linkValue);
           const nameDisplay = row.querySelector('.ops-name-display');
           const nameEdit = row.querySelector('.ops-name-edit');
           const typeDisplay = row.querySelector('.ops-type-display');
@@ -528,6 +566,8 @@
           const rateEdit = row.querySelector('.ops-rate-edit');
           const categoryDisplay = row.querySelector('.ops-category-display');
           const categoryEdit = row.querySelector('.ops-category-edit');
+          const linkDisplay = row.querySelector('.ops-link-display');
+          const linkEdit = row.querySelector('.ops-link-edit');
           const editBtn = row.querySelector('.edit-ops-btn');
           
           nameDisplay.textContent = newName;
@@ -549,6 +589,14 @@
             categoryDisplay.style.display = 'inline';
           }
           if (categoryEdit) categoryEdit.style.display = 'none';
+          if (linkDisplay) {
+            linkDisplay.innerHTML = linkDisplayHtml(linkValue);
+            linkDisplay.style.display = 'inline';
+          }
+          if (linkEdit) {
+            linkEdit.value = linkValue;
+            linkEdit.style.display = 'none';
+          }
           editBtn.textContent = 'Edit';
           
           addNewOpsWarning.textContent = 'Operation updated successfully!';
