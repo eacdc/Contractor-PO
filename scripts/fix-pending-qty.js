@@ -192,6 +192,10 @@ jobDocs.forEach(j => {
       });
     }
 
+    // Packaging segment e job er totalQty er 5% porjonto beshi record kora
+    // boidho (work-done.html: maxForRow = packagingTotalQty * 0.05 + pending).
+    // Oi tuku overshoot ke "kaj beshi hoye gechhe" na dhore, pending 0 e clamp
+    // kora hoy — ta na hole allowance er qty tuku ke bhul mone hoto.
     const newPending = Math.max(0, Math.min(total, total - doneTotal));
     const delta = r2(newPending - pending);
     if (Math.abs(delta) <= TOL) return;

@@ -26,6 +26,11 @@ const JOB_FILTER = '';    // ekta job dekhte: 'J03724_26_27'.  '' = sob
 const TOL        = 0.5;
 const SHOW_ROWS  = 200;   // koto ta row dekhabe
 const CSV        = false; // true = CSV output (Excel e nite)
+// Packaging segment e protita operation e job er totalQty er eto % porjonto
+// BESHI record kora boidho — work-done.html eii niyom mane
+// (maxForRow = packagingTotalQty * 0.05 + pending), ar backend er bill delete
+// route eo (usePackagingRule). Tai ei tuku overshoot bhul noy.
+const PACKAGING_ALLOWANCE_PCT = 5;
 // ----------------------------------------------------------------------------
 
 const d = db.getSiblingDB(DB_NAME);
@@ -48,7 +53,7 @@ d.getCollection('Contractor').find({}, { contractorId: 1, name: 1 }).forEach(c =
   contractorName[norm(c.contractorId)] = norm(c.name);
 });
 
-// job|opId -> { total, segment, rate }
+// job|opId -> { total, segment, jobQty, rate }
 const jobOpInfo = {};
 d.getCollection('JobopsMaster').find(JOB_FILTER ? { jobId: JOB_FILTER } : {}).forEach(j => {
   const jid = norm(j.jobId);
@@ -56,6 +61,7 @@ d.getCollection('JobopsMaster').find(JOB_FILTER ? { jobId: JOB_FILTER } : {}).fo
     jobOpInfo[jid + '|' + norm(o.opId)] = {
       total: Number(o.totalOpsQty || 0),
       segment: norm(j.segmentName),
+      jobQty: Number(j.totalQty || 0),
       rate: r2(o.valuePerBook)
     };
   });
@@ -107,6 +113,7 @@ d.getCollection('Contractor_WD').find(JOB_FILTER ? { jobId: JOB_FILTER } : {}).f
       date: dstr(od.completionDate),
       total: info ? info.total : null,
       segment: info ? info.segment : '',
+      jobQty: info ? info.jobQty : 0,
       billKey: [jid, opsName, rate].join('|'),
       groupKey: jid + '|' + oid
     });
@@ -124,7 +131,7 @@ rows.forEach(r => {
 });
 
 // ------------------------------------------------- 4. suggestion hisheb -----
-const OK = [], TRIM = [], DROP = [], UNKNOWN = [];
+const OK = [], ALLOWANCE = [], REVIEW = [], TRIM = [], DROP = [], UNKNOWN = [];
 
 rows.forEach(r => {
   if (r.total == null) {
@@ -134,41 +141,74 @@ rows.forEach(r => {
     return;
   }
 
-  const billed  = liveBill[r.billKey] || 0;
-  const room    = r2(r.total - billed);              // ar koto ta bill kora jay
+  const billed   = liveBill[r.billKey] || 0;
   const groupQty = groupUnsaved[r.groupKey] || 0;    // sob contractor mile dabi
-  const shared  = Object.keys(groupContractors[r.groupKey] || {}).length > 1;
+  const shared   = Object.keys(groupContractors[r.groupKey] || {}).length > 1;
+
+  // Packaging segment e job er totalQty er 5% porjonto overshoot boidho.
+  // Allowance ta totalOpsQty er upor noy — job er totalQty er upor, karon
+  // work-done.html eo tai (packagingTotalQty * 0.05).
+  const isPackaging = r.segment === 'Packaging';
+  const basis = r.jobQty > 0 ? r.jobQty : r.total;
+  const allowance = isPackaging ? Math.round(basis * PACKAGING_ALLOWANCE_PCT / 100) : 0;
+  const allowedMax = r.total + allowance;
+  const room = r2(allowedMax - billed);              // ar koto ta bill kora jay
+
+  // Segment "Packaging" lekha nei othocho overshoot tuku 5% er moddhe — eta
+  // sombhoboto oi allowance ei, kintu segment na thakay nishchit hoya jachhe na.
+  const overshoot = r2(billed + groupQty - r.total);
+  const overshootPct = basis > 0 ? r2(overshoot / basis * 100) : 0;
+  const looksLikeAllowance = !isPackaging && overshoot > TOL && overshootPct <= PACKAGING_ALLOWANCE_PCT;
 
   r.billed = billed;
   r.room = room;
   r.groupQty = groupQty;
   r.shared = shared;
+  r.allowance = allowance;
+  r.overshoot = overshoot;
+  r.overshootPct = overshootPct;
+
+  const allowanceNote = allowance > 0
+    ? ' [Packaging allowance +' + allowance + ']'
+    : '';
 
   if (room <= TOL) {
-    // Job er ei op e ar ek tao bill kora jabe na — puro row tai baad
     r.suggested = 0;
     r.cut = r.qty;
     r.verdict = 'DROP';
-    r.note = billed >= r.total
-      ? 'Live bill eii totalOpsQty sesh (' + billed + '/' + r.total + ') — ei row submit korle over-billing hobe'
-      : 'Jaega nei';
+    r.note = 'Live bill eii puro jaega sesh (' + billed + '/' + allowedMax + ')' + allowanceNote +
+             ' — ei row submit korle over-billing hobe';
     DROP.push(r);
   } else if (groupQty > room + TOL) {
-    // Dabi jaegar cheye beshi — anupate kome ana hobe
     const share = groupQty > 0 ? r.qty / groupQty : 0;
     const suggested = Math.max(0, Math.floor(room * share));
     r.suggested = suggested;
     r.cut = r2(r.qty - suggested);
-    r.verdict = 'TRIM';
-    r.note = 'billed ' + billed + '/' + r.total + ', jaega baki ' + room +
-             ', kintu dabi ' + groupQty + (shared ? ' (ekadhik contractor — anupate bhag kora holo)' : '');
-    TRIM.push(r);
+    if (looksLikeAllowance) {
+      r.verdict = 'REVIEW';
+      r.note = 'billed ' + billed + '/' + r.total + ', dabi ' + groupQty + ' — ' + overshootPct +
+               '% beshi. segmentName "Packaging" lekha nei (ekhon: "' + (r.segment || 'faka') +
+               '"), tai allowance dhora hoyni. Job ta Packaging hole eta thik ache.';
+      REVIEW.push(r);
+    } else {
+      r.verdict = 'TRIM';
+      r.note = 'billed ' + billed + '/' + allowedMax + allowanceNote + ', jaega baki ' + room +
+               ', kintu dabi ' + groupQty + (shared ? ' (ekadhik contractor — anupate bhag kora holo)' : '');
+      TRIM.push(r);
+    }
   } else {
     r.suggested = r.qty;
     r.cut = 0;
-    r.verdict = 'OK';
-    r.note = 'jaega ache (' + room + ') — bodlanor dorkar nei';
-    OK.push(r);
+    if (overshoot > TOL) {
+      r.verdict = 'ALLOWANCE';
+      r.note = 'totalOpsQty (' + r.total + ') chariye gechhe ' + overshoot + ' (' + overshootPct +
+               '%), kintu Packaging allowance (' + allowance + ') er moddhei — thik ache';
+      ALLOWANCE.push(r);
+    } else {
+      r.verdict = 'OK';
+      r.note = 'jaega ache (' + room + ') — bodlanor dorkar nei';
+      OK.push(r);
+    }
   }
 });
 
@@ -178,7 +218,7 @@ const sumCutV = a => r2(a.reduce((s, x) => s + (x.cut || 0) * (x.rate || 0), 0))
 
 if (CSV) {
   say('verdict,contractor,job,operation,rate,savedOn,currentQty,suggestedQty,cutQty,cutValue,liveBilled,totalOpsQty,roomLeft,note');
-  [].concat(DROP, TRIM, OK, UNKNOWN).forEach(r => {
+  [].concat(DROP, TRIM, REVIEW, ALLOWANCE, OK, UNKNOWN).forEach(r => {
     const esc = v => {
       const s = String(v == null ? '' : v);
       return /[",\n]/.test(s) ? '"' + s.replace(/"/g, "'") + '"' : s;
@@ -199,22 +239,28 @@ if (CSV) {
   say('  SAVE HOYECHE KINTU BILL HOYNI — qty adjustment SUGGESTION   db: ' + DB_NAME +
       (JOB_FILTER ? '   job: ' + JOB_FILTER : '   (sob job)'));
   say('='.repeat(120));
-  say('  NIYOM: delete na kora bill i final truth.  jaega baki = totalOpsQty - live bill er qty');
+  say('  NIYOM: delete na kora bill i final truth.');
+  say('         jaega baki = totalOpsQty + Packaging allowance (' + PACKAGING_ALLOWANCE_PCT +
+      '% of job qty) - live bill er qty');
   say('');
   say('  savedInBill:"No" row (job)     : ' + rows.length + '   mot value ' + sumV(rows));
   say('  ad-hoc row (ekhane dhora hoyni): ' + adhocSkipped);
   say('');
-  say('  OK      — jemon ache temon i thakuk : ' + OK.length + '   value ' + sumV(OK));
-  say('  TRIM    — qty kombe                 : ' + TRIM.length + '   kombe value ' + sumCutV(TRIM));
-  say('  DROP    — puro row baad deoa uchit  : ' + DROP.length + '   kombe value ' + sumCutV(DROP));
-  say('  UNKNOWN — hate dekhte hobe          : ' + UNKNOWN.length);
+  say('  OK        — jaegar moddhei                    : ' + OK.length + '   value ' + sumV(OK));
+  say('  ALLOWANCE — totalOpsQty chariyeche kintu');
+  say('              Packaging allowance er moddhe     : ' + ALLOWANCE.length + '   value ' + sumV(ALLOWANCE));
+  say('  REVIEW    — 5% er moddhe, kintu segment');
+  say('              "Packaging" lekha nei             : ' + REVIEW.length + '   value ' + sumV(REVIEW));
+  say('  TRIM      — allowance diyeo bakhya hoy na     : ' + TRIM.length + '   kombe value ' + sumCutV(TRIM));
+  say('  DROP      — puro row baad deoa uchit          : ' + DROP.length + '   kombe value ' + sumCutV(DROP));
+  say('  UNKNOWN   — hate dekhte hobe                  : ' + UNKNOWN.length);
   say('');
-  say('  jodi kichui na kora hoy ar sob submit kore deoa hoy, tahole OVER-BILLING hobe: ' +
-      r2(sumCutV(TRIM) + sumCutV(DROP)));
+  say('  Sob submit kore dile PROKRITO over-billing hobe: ' + r2(sumCutV(TRIM) + sumCutV(DROP)));
+  say('  (REVIEW gulo Packaging hole seta 0 i thakbe)');
 
   say('');
   say('-'.repeat(120));
-  say('1)  DROP  —  ei op e live bill diye totalOpsQty sesh, ar ek tao bill kora jabe na');
+  say('1)  DROP  —  jaega puro sesh, ar ek tao bill kora jabe na');
   say('-'.repeat(120));
   if (!DROP.length) say('  (kichu nei)');
   DROP.slice(0, SHOW_ROWS).forEach(r => { say(line(r)); say('        ' + r.note); });
@@ -222,7 +268,7 @@ if (CSV) {
 
   say('');
   say('-'.repeat(120));
-  say('2)  TRIM  —  jaega ache kintu dabi tar cheye beshi');
+  say('2)  TRIM  —  Packaging allowance dhorleo dabi beshi');
   say('-'.repeat(120));
   if (!TRIM.length) say('  (kichu nei)');
   TRIM.slice(0, SHOW_ROWS).forEach(r => { say(line(r)); say('        ' + r.note); });
@@ -230,7 +276,29 @@ if (CSV) {
 
   say('');
   say('-'.repeat(120));
-  say('3)  UNKNOWN  —  JobopsMaster e job+op paoa jayni');
+  say('3)  REVIEW  —  overshoot 5% er moddhe, kintu JobopsMaster e segmentName "Packaging" nei');
+  say('-'.repeat(120));
+  say('  Job ta sotti Packaging hole ei gulo thik ache, kichu korte hobe na.');
+  say('  Na hole TRIM hisebe dhorun. Ekbar segmentName ta thik kore dile ei section fnaka hoye jabe.');
+  say('');
+  if (!REVIEW.length) say('  (kichu nei)');
+  REVIEW.slice(0, SHOW_ROWS).forEach(r => { say(line(r)); say('        ' + r.note); });
+  if (REVIEW.length > SHOW_ROWS) say('  ... aro ' + (REVIEW.length - SHOW_ROWS) + ' ta');
+
+  say('');
+  say('-'.repeat(120));
+  say('4)  ALLOWANCE  —  totalOpsQty chariyeche, kintu Packaging allowance er moddhei (thik ache)');
+  say('-'.repeat(120));
+  if (!ALLOWANCE.length) say('  (kichu nei)');
+  ALLOWANCE.slice(0, SHOW_ROWS).forEach(r =>
+    say('  ' + r.date + '  ' + String(r.contractor).slice(0, 22).padEnd(24) + r.jobId.padEnd(17) +
+        String(r.opsName).slice(0, 26).padEnd(28) + 'qty ' + String(r.qty).padEnd(9) +
+        '+' + r.overshoot + ' (' + r.overshootPct + '%) allowance ' + r.allowance));
+  if (ALLOWANCE.length > SHOW_ROWS) say('  ... aro ' + (ALLOWANCE.length - SHOW_ROWS) + ' ta');
+
+  say('');
+  say('-'.repeat(120));
+  say('5)  UNKNOWN  —  JobopsMaster e job+op paoa jayni');
   say('-'.repeat(120));
   if (!UNKNOWN.length) say('  (kichu nei)');
   UNKNOWN.slice(0, SHOW_ROWS).forEach(r =>
@@ -239,11 +307,12 @@ if (CSV) {
 
   say('');
   say('-'.repeat(120));
-  say('4)  OK  —  ei gulo nirbighne submit kora jay');
+  say('6)  OK + ALLOWANCE  —  ei gulo nirbighne submit kora jay');
   say('-'.repeat(120));
-  if (!OK.length) say('  (kichu nei)');
+  const fine = OK.concat(ALLOWANCE);
+  if (!fine.length) say('  (kichu nei)');
   const byContractor = {};
-  OK.forEach(r => {
+  fine.forEach(r => {
     if (!byContractor[r.contractor]) byContractor[r.contractor] = { n: 0, v: 0 };
     byContractor[r.contractor].n++;
     byContractor[r.contractor].v = r2(byContractor[r.contractor].v + r.value);
