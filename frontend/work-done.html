@@ -11,6 +11,40 @@
         cursor: not-allowed;
         opacity: 0.6;
       }
+
+      /* Bill Details rows that were saved on an earlier day and never submitted.
+         Without this they look identical to work just entered, which is how
+         old saves get mistaken for quantities appearing on their own. */
+      #billTableBody tr.bill-row--carried-over {
+        background-color: rgba(250, 204, 21, 0.14);
+      }
+
+      #billTableBody tr.bill-row--carried-over td:first-child {
+        border-left: 3px solid #eab308;
+      }
+
+      .bill-row-age {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 1px 6px;
+        border-radius: 10px;
+        background-color: #eab308;
+        color: #1f2937;
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
+      .carried-over-banner {
+        margin: 0 0 12px;
+        padding: 10px 14px;
+        border: 1px solid #eab308;
+        border-left-width: 4px;
+        border-radius: 6px;
+        background-color: rgba(250, 204, 21, 0.14);
+        font-size: 14px;
+        line-height: 1.5;
+      }
     </style>
   </head>
   <body>
@@ -123,6 +157,7 @@
             <h3>Bill Details</h3>
           </header>
           <div class="panel-body">
+            <p class="carried-over-banner" id="carriedOverBanner" style="display: none;"></p>
             <div class="table-wrapper">
               <table class="data-table" id="billTable">
                 <thead>
@@ -133,6 +168,7 @@
                     <th>Rate / Book</th>
                     <th>Qty Completed</th>
                     <th>Total Value</th>
+                    <th>Saved On</th>
                     <th>Action</th>
                   </tr>
                   <tr>
@@ -142,6 +178,7 @@
                     <th><input type="text" id="billFilterRate" placeholder="Filter rate" style="width: 100%;" /></th>
                     <th><input type="text" id="billFilterQtyCompleted" placeholder="Filter qty completed" style="width: 100%;" /></th>
                     <th><input type="text" id="billFilterTotalValue" placeholder="Filter total value" style="width: 100%;" /></th>
+                    <th><input type="text" id="billFilterSavedOn" placeholder="Filter saved on" style="width: 100%;" /></th>
                     <th></th>
                   </tr>
                 </thead>
@@ -230,6 +267,7 @@
       const billFilterRate = document.getElementById("billFilterRate");
       const billFilterQtyCompleted = document.getElementById("billFilterQtyCompleted");
       const billFilterTotalValue = document.getElementById("billFilterTotalValue");
+      const billFilterSavedOn = document.getElementById("billFilterSavedOn");
       const homeBtn = document.querySelector(".home-btn");
       const adhocPendingPanel = document.getElementById("adhocPendingPanel");
       const adhocOrderSelect = document.getElementById("adhocOrderSelect");
@@ -266,6 +304,7 @@
         rate: '',
         qtyCompleted: '',
         totalValue: '',
+        savedOn: '',
       };
       // Packaging segment: per operation max "qty to add" = totalQty*0.05 + that op's pending. Key: jobNumber, value: totalQty or null.
       let jobPackagingTotalQtyMap = {};
@@ -294,8 +333,61 @@
           isAdhoc,
           adhocOrderId,
           adhocLabel,
+          completionDate: item.completionDate || null,
           fromContractorWD: true
         };
+      }
+
+      // These rows come straight from Contractor_WD: work someone saved earlier
+      // and never submitted. Anything saved before today is flagged so it is
+      // never mistaken for a quantity entered in this session.
+      function startOfToday() {
+        const d = new Date();
+        d.setHours(0, 0, 0, 0);
+        return d;
+      }
+
+      function formatSavedOn(value) {
+        if (!value) return '';
+        const d = new Date(value);
+        if (isNaN(d.getTime())) return '';
+        return d.toLocaleDateString('en-GB');
+      }
+
+      function daysOld(value) {
+        if (!value) return 0;
+        const d = new Date(value);
+        if (isNaN(d.getTime())) return 0;
+        d.setHours(0, 0, 0, 0);
+        return Math.max(0, Math.round((startOfToday() - d) / 86400000));
+      }
+
+      function isCarriedOver(item) {
+        return daysOld(item && item.completionDate) > 0;
+      }
+
+      function updateCarriedOverBanner() {
+        const banner = document.getElementById('carriedOverBanner');
+        if (!banner) return;
+
+        const old = billData.filter(isCarriedOver);
+        if (old.length === 0) {
+          banner.style.display = 'none';
+          banner.textContent = '';
+          return;
+        }
+
+        const oldestDays = Math.max(...old.map(item => daysOld(item.completionDate)));
+        const totalValue = old.reduce((sum, item) => sum + (Number(item.totalValue) || 0), 0);
+        const refs = [...new Set(old.map(item => (item.isAdhoc ? `Ad-hoc: ${item.adhocLabel || '-'}` : item.jobNumber)))];
+        const refText = refs.slice(0, 4).join(', ') + (refs.length > 4 ? ` +${refs.length - 4} more` : '');
+
+        banner.style.display = 'block';
+        banner.textContent =
+          `⚠ ${old.length} row(s) below were saved earlier (oldest ${oldestDays} day(s) ago) ` +
+          `and have never been submitted — they were loaded automatically, not entered now. ` +
+          `Total ${totalValue.toFixed(2)} across: ${refText}. ` +
+          `Submit them or delete them before adding new work.`;
       }
 
       // Sync Bill Details rows for a job from Contractor_WD unsaved entries (backend is source of truth)
@@ -418,7 +510,7 @@
         const dateStr = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
 
         // Build rows
-        const headers = ['Reference', 'Operation', 'Qty/Book', 'Rate/Book', 'Qty Completed', 'Total Value'];
+        const headers = ['Reference', 'Operation', 'Qty/Book', 'Rate/Book', 'Qty Completed', 'Total Value', 'Saved On'];
         const rows = billData
           .filter(item => item.opsName && item.opsName.trim())
           .map(item => {
@@ -429,12 +521,13 @@
               Number(item.qtyBook ?? 0).toFixed(4),
               (Number(item.valuePerBook) || 0).toFixed(8),
               item.qtyCompleted,
-              (Number(item.totalValue) || 0).toFixed(4)
+              (Number(item.totalValue) || 0).toFixed(4),
+              formatSavedOn(item.completionDate) || '-'
             ];
           });
 
         const totalValue = billData.reduce((s, item) => s + (Number(item.totalValue) || 0), 0);
-        rows.push(['', '', '', '', 'Total:', totalValue.toFixed(4)]);
+        rows.push(['', '', '', '', 'Total:', totalValue.toFixed(4), '']);
 
         // Build CSV content
         const escape = val => {
@@ -1797,6 +1890,7 @@
           const rateText = (Number(item.valuePerBook) || 0).toFixed(8);
           const qtyCompletedText = String(item.qtyCompleted ?? '');
           const totalValueText = (Number(item.totalValue) || 0).toFixed(4);
+          const savedOnText = formatSavedOn(item.completionDate);
 
           const matches =
             containsFilterValue(referenceText, billFilterState.reference) &&
@@ -1804,7 +1898,8 @@
             containsFilterValue(qtyBookText, billFilterState.qtyBook) &&
             containsFilterValue(rateText, billFilterState.rate) &&
             containsFilterValue(qtyCompletedText, billFilterState.qtyCompleted) &&
-            containsFilterValue(totalValueText, billFilterState.totalValue);
+            containsFilterValue(totalValueText, billFilterState.totalValue) &&
+            containsFilterValue(savedOnText, billFilterState.savedOn);
 
           if (matches) entries.push({ item, index });
         });
@@ -1830,6 +1925,15 @@
             const row = document.createElement("tr");
             row.setAttribute('data-bill-index', index);
             const referenceText = item.isAdhoc ? `Ad-hoc: ${item.adhocLabel || '-'}` : item.jobNumber;
+            const savedOn = formatSavedOn(item.completionDate);
+            const age = daysOld(item.completionDate);
+            if (age > 0) {
+              row.classList.add('bill-row--carried-over');
+              row.title = `Saved ${age} day(s) ago and not yet submitted — loaded automatically, not entered now.`;
+            }
+            const savedOnCell = savedOn
+              ? `${savedOn}${age > 0 ? `<span class="bill-row-age">${age}d old</span>` : ''}`
+              : '-';
             row.innerHTML = `
               <td>${referenceText}</td>
               <td>${item.opsName}</td>
@@ -1837,6 +1941,7 @@
               <td>${(Number(item.valuePerBook) || 0).toFixed(8)}</td>
               <td>${item.qtyCompleted}</td>
               <td>${totalValue.toFixed(4)}</td>
+              <td>${savedOnCell}</td>
               <td>
                 <button class="secondary-btn primary-btn--sm" type="button" data-delete-index="${index}" style="background-color: #ef4444; color: white; border: 1px solid #dc2626; padding: 7px 16px; cursor: pointer;">
                   Delete
@@ -1845,21 +1950,24 @@
             `;
             billTableBody.appendChild(row);
           });
-          
+
           // Update footer with total
           if (billTableFooter) {
             billTableFooter.innerHTML = `
               <tr>
                 <td colspan="6" style="text-align: right; font-weight: bold;">Total:</td>
                 <td style="font-weight: bold;">${totalValueSum.toFixed(4)}</td>
+                <td></td>
               </tr>
             `;
           }
         }
-        
+
+        updateCarriedOverBanner();
+
         // Update Submit button state
         updateSubmitButtonState();
-        
+
         // Update "Pull in Series" checkbox state after refreshing bill table
         updatePullInSeriesCheckboxState();
       }
@@ -1877,57 +1985,63 @@
         // Remove from billData immediately so UI reacts fast
         billData.splice(index, 1);
 
-        // Restore Operations Pending cell display (+= qtyCompleted)
-        if (!item.isAdhoc && jobNumber) {
-          try {
-            const matchingInputs = document.querySelectorAll(
-              `.work-qty-input[data-op-id="${opId}"][data-job="${jobNumber}"]`
-            );
-            matchingInputs.forEach(input => {
-              const row = input.closest('tr');
-              if (row) {
-                const pendingCell = row.querySelector('.pending-cell');
-                if (pendingCell) {
-                  const restored = (parseFloat(pendingCell.textContent || '0') || 0) + qtyCompleted;
-                  pendingCell.textContent = restored;
-                  input.max = restored;
+        // Move the locally displayed pending qty by `delta`. Called with
+        // +qtyCompleted when the row is dropped and with -qtyCompleted to undo
+        // that if the server-side reversal turns out to have failed.
+        const shiftLocalPending = (delta) => {
+          if (!item.isAdhoc && jobNumber) {
+            try {
+              const matchingInputs = document.querySelectorAll(
+                `.work-qty-input[data-op-id="${opId}"][data-job="${jobNumber}"]`
+              );
+              matchingInputs.forEach(input => {
+                const row = input.closest('tr');
+                if (row) {
+                  const pendingCell = row.querySelector('.pending-cell');
+                  if (pendingCell) {
+                    const restored = Math.max(0, (parseFloat(pendingCell.textContent || '0') || 0) + delta);
+                    pendingCell.textContent = restored;
+                    input.max = restored;
+                  }
                 }
+              });
+              // Update cache
+              if (pendingQtyCache[jobNumber]?.[opId]) {
+                pendingQtyCache[jobNumber][opId] = Math.max(0, (pendingQtyCache[jobNumber][opId] || 0) - delta);
+                if (pendingQtyCache[jobNumber][opId] === 0) delete pendingQtyCache[jobNumber][opId];
               }
-            });
-            // Update cache
-            if (pendingQtyCache[jobNumber]?.[opId]) {
-              pendingQtyCache[jobNumber][opId] = Math.max(0, (pendingQtyCache[jobNumber][opId] || 0) - qtyCompleted);
-              if (pendingQtyCache[jobNumber][opId] === 0) delete pendingQtyCache[jobNumber][opId];
+            } catch (uiErr) {
+              console.warn('Could not update pending qty display:', uiErr);
             }
-          } catch (uiErr) {
-            console.warn('Could not update pending qty display:', uiErr);
           }
-        }
 
-        // Restore adhoc pending table
-        if (item.isAdhoc) {
-          // Reduce the cache (for items saved in this session)
-          const cacheKey = `${item.adhocOrderId || ''}_${opId}`;
-          adhocPendingQtyCache[cacheKey] = Math.max(0, (adhocPendingQtyCache[cacheKey] || 0) - qtyCompleted);
-          if (adhocPendingQtyCache[cacheKey] === 0) delete adhocPendingQtyCache[cacheKey];
+          if (item.isAdhoc) {
+            const cacheKey = `${item.adhocOrderId || ''}_${opId}`;
+            adhocPendingQtyCache[cacheKey] = Math.max(0, (adhocPendingQtyCache[cacheKey] || 0) - delta);
+            if (adhocPendingQtyCache[cacheKey] === 0) delete adhocPendingQtyCache[cacheKey];
 
-          // Add qty back directly in currentAdhocOperationsData so renderAdhocPendingTable
-          // recalculates correctly regardless of whether there was a cache entry or not.
-          if (currentAdhocOperationsData && item.adhocOrderId &&
-              currentAdhocOrder && String(currentAdhocOrder._id) === String(item.adhocOrderId)) {
-            const opData = currentAdhocOperationsData.find(o => String(o.opId) === String(opId));
-            if (opData) {
-              opData.pendingOpsQty = Number(opData.pendingOpsQty || 0) + qtyCompleted;
+            // Adjust currentAdhocOperationsData directly so renderAdhocPendingTable
+            // recalculates correctly regardless of whether there was a cache entry.
+            if (currentAdhocOperationsData && item.adhocOrderId &&
+                currentAdhocOrder && String(currentAdhocOrder._id) === String(item.adhocOrderId)) {
+              const opData = currentAdhocOperationsData.find(o => String(o.opId) === String(opId));
+              if (opData) {
+                opData.pendingOpsQty = Math.max(0, Number(opData.pendingOpsQty || 0) + delta);
+              }
+              renderAdhocPendingTable(currentAdhocOperationsData);
             }
-            renderAdhocPendingTable(currentAdhocOperationsData);
           }
-        }
+        };
+
+        shiftLocalPending(qtyCompleted);
 
         refreshBillTable();
         updatePullInSeriesCheckboxState();
         updateSubmitButtonState();
 
-        // Reverse in MongoDB (fire-and-forget, log errors but don't block UI)
+        // Reverse in MongoDB. This has to be awaited and checked: if the row is
+        // dropped from the UI but the reversal never lands, the entry stays in
+        // Contractor_WD and silently reappears in Bill Details on the next search.
         if (currentContractor) {
           const unsaveItem = {
             jobNumber: item.jobNumber || '',
@@ -1938,9 +2052,33 @@
             valuePerBook: item.valuePerBook || 0,
             qtyToRestore: qtyCompleted
           };
-          workAPI.unsave(currentContractor, [unsaveItem]).catch(err => {
+
+          let failureReason = '';
+          try {
+            const result = await workAPI.unsave(currentContractor, [unsaveItem]);
+            // The endpoint answers 200 even when it matched nothing, so check
+            // the per-item outcome rather than trusting the status code.
+            const outcome = result && Array.isArray(result.results) ? result.results[0] : null;
+            if (outcome && !outcome.removed) {
+              failureReason = outcome.error || 'the entry could not be found on the server';
+            }
+          } catch (err) {
             console.error('Failed to reverse saved work in MongoDB:', err);
-          });
+            failureReason = err.message || 'the server could not be reached';
+          }
+
+          if (failureReason) {
+            // Put the row and the pending qty back so the page keeps matching
+            // the database instead of quietly drifting away from it.
+            billData.splice(Math.min(index, billData.length), 0, item);
+            shiftLocalPending(-qtyCompleted);
+            refreshBillTable();
+            updateSubmitButtonState();
+            workDoneWarning.style.color = '';
+            workDoneWarning.textContent =
+              `Could not delete "${item.opsName}" — ${failureReason}. The row has been restored; please try again.`;
+            return;
+          }
         }
       }
 
@@ -1963,6 +2101,7 @@
         [billFilterRate, 'rate'],
         [billFilterQtyCompleted, 'qtyCompleted'],
         [billFilterTotalValue, 'totalValue'],
+        [billFilterSavedOn, 'savedOn'],
       ].forEach(([input, key]) => {
         if (!input) return;
         input.addEventListener('input', () => {
@@ -2021,6 +2160,7 @@
         const addAllJobsBtn = document.getElementById('addAllJobsBtn');
         if (addAllJobsBtn) addAllJobsBtn.remove();
 
+        updateCarriedOverBanner();
         updateSubmitButtonState();
         updatePullInSeriesCheckboxState();
       }
@@ -2092,11 +2232,15 @@
           };
         });
 
+        let savedBill = null;
         try {
-          // 1. Create the bill
-          const savedBill = await billsAPI.create(contractorName, jobs);
+          // 1. Create the bill. The backend also marks the underlying
+          //    Contractor_WD entries as billed as part of this call.
+          savedBill = await billsAPI.create(contractorName, jobs);
 
-          // 2. Mark Contractor_WD entries as savedInBill:'Yes'
+          // 2. Mark Contractor_WD entries as savedInBill:'Yes'. This is now a
+          //    safety net rather than the only chance to do it — it normally
+          //    finds nothing left to mark.
           const markItems = billData.map(item => ({
             jobNumber: item.jobNumber || '',
             isAdhoc: !!item.isAdhoc,
@@ -2157,7 +2301,18 @@
 
           return true;
         } catch (error) {
-          workDoneWarning.textContent = error.message || "Failed to submit bill.";
+          // If the bill itself was created and only the follow-up failed, saying
+          // just "Failed to submit bill" is misleading — the bill exists, and
+          // re-submitting would bill the same work a second time.
+          if (savedBill && savedBill.billNumber) {
+            const msg =
+              `Bill ${savedBill.billNumber} WAS created, but marking the work as billed failed ` +
+              `(${error.message || 'unknown error'}). Do NOT submit again — check bill ${savedBill.billNumber} first.`;
+            alert(msg);
+            workDoneWarning.textContent = msg;
+          } else {
+            workDoneWarning.textContent = error.message || "Failed to submit bill.";
+          }
           return false;
         }
       }
