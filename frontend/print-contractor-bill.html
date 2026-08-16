@@ -1087,7 +1087,26 @@
 
       async function deleteBill(billNumber) {
         try {
-          await billsAPI.delete(billNumber);
+          try {
+            await billsAPI.delete(billNumber);
+          } catch (err) {
+            // A paid bill needs a second, explicit confirmation: deleting it
+            // reverses the recorded work but does not undo the payment.
+            if (!/force=true/i.test(err.message || '')) throw err;
+            const ok = confirm(
+              `Bill ${billNumber} is marked PAID.\n\n` +
+              `Deleting it will reverse the recorded work and restore pending quantities, ` +
+              `but it will NOT undo the payment that was already made.\n\n` +
+              `Delete it anyway?`
+            );
+            if (!ok) {
+              warningEl.textContent = 'Delete cancelled.';
+              warningEl.style.color = '';
+              setTimeout(() => { warningEl.textContent = ''; }, 3000);
+              return;
+            }
+            await billsAPI.delete(billNumber, true);
+          }
           // Reload bills to refresh the table
           await loadBills();
           warningEl.textContent = 'Bill deleted successfully! Pending quantities have been restored.';

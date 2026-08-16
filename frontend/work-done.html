@@ -1398,17 +1398,20 @@
                     };
                   }
                   
-                  // Packaging segment: per-op max = totalQty*0.05 + that op's pending
-                  try {
-                    const jobDetails = await jobsAPI.getJobDetails(jn);
-                    const seg = (jobDetails.segmentName || '').trim();
-                    if (seg === 'Packaging') {
-                      jobPackagingTotalQtyMap[jn] = Number(jobDetails.qty) || 0;
-                    } else {
+                  // Packaging segment: per-op max = totalQty*0.05 + that op's pending.
+                  // Same as single-job mode: use what the pending response
+                  // reports so the client cap matches the server's.
+                  if (result.segmentName !== undefined) {
+                    jobPackagingTotalQtyMap[jn] =
+                      (result.segmentName || '').trim() === 'Packaging' ? (Number(result.totalQty) || 0) : null;
+                  } else {
+                    try {
+                      const jobDetails = await jobsAPI.getJobDetails(jn);
+                      const seg = (jobDetails.segmentName || '').trim();
+                      jobPackagingTotalQtyMap[jn] = seg === 'Packaging' ? (Number(jobDetails.qty) || 0) : null;
+                    } catch (_) {
                       jobPackagingTotalQtyMap[jn] = null;
                     }
-                  } catch (_) {
-                    jobPackagingTotalQtyMap[jn] = null;
                   }
                   
                   seriesJobs.push({
@@ -1467,17 +1470,21 @@
                 };
               }
 
-              // Packaging segment: per-op max = totalQty*0.05 + that op's pending
-              try {
-                const jobDetails = await jobsAPI.getJobDetails(jobNumber);
-                const seg = (jobDetails.segmentName || '').trim();
-                if (seg === 'Packaging') {
-                  jobPackagingTotalQtyMap[jobNumber] = Number(jobDetails.qty) || 0;
-                } else {
+              // Packaging segment: per-op max = totalQty*0.05 + that op's pending.
+              // Prefer the segment the pending response reports, since the
+              // server enforces its cap from that same value; fall back to the
+              // job details lookup for backends that do not send it yet.
+              if (result.segmentName !== undefined) {
+                jobPackagingTotalQtyMap[jobNumber] =
+                  (result.segmentName || '').trim() === 'Packaging' ? (Number(result.totalQty) || 0) : null;
+              } else {
+                try {
+                  const jobDetails = await jobsAPI.getJobDetails(jobNumber);
+                  const seg = (jobDetails.segmentName || '').trim();
+                  jobPackagingTotalQtyMap[jobNumber] = seg === 'Packaging' ? (Number(jobDetails.qty) || 0) : null;
+                } catch (_) {
                   jobPackagingTotalQtyMap[jobNumber] = null;
                 }
-              } catch (_) {
-                jobPackagingTotalQtyMap[jobNumber] = null;
               }
 
               // Populate table
