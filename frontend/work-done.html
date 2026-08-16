@@ -338,6 +338,43 @@
         };
       }
 
+      // How much can still be added to one operation.
+      // Two limits apply and the lower one wins:
+      //   pending + allowance                    — what is left to do
+      //   totalOpsQty + allowance - recorded     — what the job can still hold
+      // They agree while pendingOpsQty is accurate. Where it has drifted the
+      // second is the real limit, and it is the one the server enforces, so
+      // using it here stops the screen accepting a quantity that would then be
+      // rejected on save.
+      function computeMaxAdd({ pending, totalOpsQty, recordedOpsQty, packagingTotalQty }) {
+        const allowance = packagingTotalQty != null ? packagingTotalQty * 0.05 : 0;
+        const byPending = (Number(pending) || 0) + allowance;
+        if (totalOpsQty == null || recordedOpsQty == null) return Math.round(byPending);
+        const byRecorded = (Number(totalOpsQty) || 0) + allowance - (Number(recordedOpsQty) || 0);
+        return Math.max(0, Math.round(Math.min(byPending, byRecorded)));
+      }
+
+      // Recalculate an input's cap from the data attributes carried on it, so
+      // the limit stays right after a save changes pending and recorded.
+      function maxAddForInput(input, pendingOverride) {
+        const row = input.closest('tr');
+        const pendingCell = row?.querySelector('.pending-cell');
+        const pending = pendingOverride != null
+          ? pendingOverride
+          : (parseFloat(pendingCell?.textContent || '0') || 0);
+        const jobNum = input.dataset.job || currentJobNumber;
+        const totalOpsQty = input.dataset.totalOpsQty !== undefined
+          ? Number(input.dataset.totalOpsQty) : null;
+        const recordedOpsQty = input.dataset.recordedOpsQty !== undefined
+          ? Number(input.dataset.recordedOpsQty) : null;
+        return computeMaxAdd({
+          pending,
+          totalOpsQty,
+          recordedOpsQty,
+          packagingTotalQty: jobNum ? jobPackagingTotalQtyMap[jobNum] : null
+        });
+      }
+
       // These rows come straight from Contractor_WD: work someone saved earlier
       // and never submitted. Anything saved before today is flagged so it is
       // never mistaken for a quantity entered in this session.
@@ -790,9 +827,13 @@
           operations.forEach(op => {
             const cachedReduction = pendingQtyCache[jobNumber]?.[op.opId] || 0;
             const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
-            const inputMax = packagingTotalQty != null
-              ? Math.round(packagingTotalQty * 0.05 + adjustedPendingQty)
-              : adjustedPendingQty;
+            const recordedSoFar = (Number(op.recordedOpsQty) || 0) + cachedReduction;
+            const inputMax = computeMaxAdd({
+              pending: adjustedPendingQty,
+              totalOpsQty: op.recordedOpsQty !== undefined ? op.totalOpsQty : null,
+              recordedOpsQty: op.recordedOpsQty !== undefined ? recordedSoFar : null,
+              packagingTotalQty
+            });
             const row = document.createElement("tr");
             row.innerHTML = `
               <td>${op.opsName || '-'}</td>
@@ -807,6 +848,8 @@
                   step="1"
                   data-op-id="${op.opId}"
                   data-job="${jobNumber}"
+                  data-total-ops-qty="${op.totalOpsQty || 0}"
+                  data-recorded-ops-qty="${recordedSoFar}"
                   data-value-per-book="${op.valuePerBook || 0}"
                 />
               </td>
@@ -864,12 +907,9 @@
             const row = e.target.closest("tr");
             const pendingCell = row?.querySelector(".pending-cell");
             if (pendingCell) {
-              const pending = parseFloat(pendingCell.textContent || "0") || 0;
               let value = parseFloat(e.target.value || "0");
               const packagingTotalQty = jobPackagingTotalQtyMap[jobNumber];
-              const maxForRow = packagingTotalQty != null
-                ? packagingTotalQty * 0.05 + pending
-                : pending;
+              const maxForRow = maxAddForInput(e.target);
               if (value > maxForRow) {
                 e.target.value = String(Math.round(maxForRow));
                 if (workDoneWarning) {
@@ -1497,9 +1537,13 @@
                   result.operations.forEach(op => {
                     const cachedReduction = pendingQtyCache[jobNumber]?.[op.opId] || 0;
                     const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
-                    const inputMax = packagingTotalQty != null
-                      ? Math.round(packagingTotalQty * 0.05 + adjustedPendingQty)
-                      : adjustedPendingQty;
+                    const recordedSoFar = (Number(op.recordedOpsQty) || 0) + cachedReduction;
+                    const inputMax = computeMaxAdd({
+                      pending: adjustedPendingQty,
+                      totalOpsQty: op.recordedOpsQty !== undefined ? op.totalOpsQty : null,
+                      recordedOpsQty: op.recordedOpsQty !== undefined ? recordedSoFar : null,
+                      packagingTotalQty
+                    });
                     const row = document.createElement("tr");
                     row.innerHTML = `
                       <td>${op.opsName || '-'}</td>
@@ -1514,6 +1558,8 @@
                           step="1"
                           data-op-id="${op.opId}"
                           data-job="${jobNumber}"
+                          data-total-ops-qty="${op.totalOpsQty || 0}"
+                          data-recorded-ops-qty="${recordedSoFar}"
                           data-value-per-book="${op.valuePerBook || 0}"
                         />
                       </td>
@@ -1554,13 +1600,10 @@
           const pendingCell = row?.querySelector(".pending-cell");
           if (!pendingCell) return;
 
-          const pending = parseFloat(pendingCell.textContent || "0") || 0;
           let value = parseFloat(input.value || "0");
           const jobNum = input.dataset.job || currentJobNumber;
           const packagingTotalQty = jobNum ? jobPackagingTotalQtyMap[jobNum] : null;
-          const maxForRow = packagingTotalQty != null
-            ? packagingTotalQty * 0.05 + pending
-            : pending;
+          const maxForRow = maxAddForInput(input);
 
           if (value > maxForRow) {
             input.value = String(Math.round(maxForRow));
@@ -1648,7 +1691,10 @@
                 if (pendingCell) {
                   const newPending = Math.max(0, parseFloat(pendingCell.textContent || "0") - qtyAdded);
                   pendingCell.textContent = newPending;
-                  input.max = newPending;
+                  if (input.dataset.recordedOpsQty !== undefined) {
+                    input.dataset.recordedOpsQty = String((Number(input.dataset.recordedOpsQty) || 0) + qtyAdded);
+                  }
+                  input.max = maxAddForInput(input, newPending);
                 }
               }
               input.value = "";
@@ -1843,7 +1889,10 @@
                     if (pendingCell) {
                       const newPending = Math.max(0, parseFloat(pendingCell.textContent || "0") - qtyAdded);
                       pendingCell.textContent = newPending;
-                      input.max = newPending;
+                      if (input.dataset.recordedOpsQty !== undefined) {
+                        input.dataset.recordedOpsQty = String((Number(input.dataset.recordedOpsQty) || 0) + qtyAdded);
+                      }
+                      input.max = maxAddForInput(input, newPending);
                     }
                   }
                   input.value = "";
@@ -2008,7 +2057,11 @@
                   if (pendingCell) {
                     const restored = Math.max(0, (parseFloat(pendingCell.textContent || '0') || 0) + delta);
                     pendingCell.textContent = restored;
-                    input.max = restored;
+                    if (input.dataset.recordedOpsQty !== undefined) {
+                      input.dataset.recordedOpsQty =
+                        String(Math.max(0, (Number(input.dataset.recordedOpsQty) || 0) - delta));
+                    }
+                    input.max = maxAddForInput(input, restored);
                   }
                 }
               });
