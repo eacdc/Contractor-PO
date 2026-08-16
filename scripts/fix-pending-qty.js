@@ -34,6 +34,11 @@ const FIX_INCREASES = false;  // niche "pending barano" section dekhun
 //         "pending" hoye jeto — jeta already bill hoye gechhe.
 // false = sudhu Contractor_WD dhora hobe (ei ta NIRAPOD NOY, dekhe bujhe korun)
 const COUNT_LIVE_BILLS = true;
+// Kichu operation e Contractor_WD te KICHUI nei (done = 0) othocho live bill e
+// puro qty ache. Oi khetre siddhanto ta puro tai bill er upor dariye — WD er
+// kono sakkhyo nei. Bill ta jodi double-billed hoy tahole pending 0 kore dile
+// boidho kaj record korai bondho hoye jabe. Tai ei gulo ALADA, default e OFF.
+const APPLY_BILL_ONLY = false;
 const JOB_FILTER    = '';     // ekta job e seemabodhho rakhte: 'J04070_25_26'
 const TOL           = 0.5;    // eto tuku difference ignore kora hobe
 const MAX_CHANGES   = 100000; // safety cap — er beshi hole kichui apply hobe na
@@ -136,7 +141,8 @@ d.getCollection('Bills').find({}).forEach(b => {
 });
 
 // ------------------------------------------------- 4. ki ki bodlate hobe ----
-const decreases = [];   // pending komano — kaj hoye geche kintu pending komeni
+const decreases = [];   // pending komano, Contractor_WD e sakkhyo ache
+const billOnly  = [];   // pending komano, kintu Contractor_WD te KICHUI nei
 const increases = [];   // pending barano — pending dorkarer cheye beshi komeche
 let opsScanned = 0;
 let billHigherCount = 0;   // koto khetre live bill > Contractor_WD
@@ -207,11 +213,15 @@ jobDocs.forEach(j => {
       billDead: bq.dead
     };
 
-    if (delta < 0) decreases.push(rec); else increases.push(rec);
+    if (delta > 0) increases.push(rec);
+    else if (rec.done > TOL) decreases.push(rec);   // Contractor_WD e sakkhyo ache
+    else billOnly.push(rec);                        // sudhu bill er upor dariye
   });
 });
 
-const planned = FIX_INCREASES ? decreases.concat(increases) : decreases;
+let planned = decreases.slice();
+if (APPLY_BILL_ONLY) planned = planned.concat(billOnly);
+if (FIX_INCREASES)   planned = planned.concat(increases);
 
 // ---------------------------------------------------------------- report ----
 const line = r =>
@@ -236,15 +246,21 @@ say('  live bill > Contractor_WD       : ' + billHigherCount + ' operation, ' + 
 say('     ^ ei qty ta purono delete bug e Contractor_WD theke hariye gechhilo.');
 say('       Bill dhora na hole ei tuku abar pending hoye jeto — othocho already bill hoye gechhe.');
 say('  ekei naam+rate er ekadhik op    : ' + ambiguousCount + '  (ei gulo te bill bad diye sudhu WD dhora hoyeche)');
-say('  pending KOMANO dorkar           : ' + decreases.length);
-say('  pending BARANO dorkar           : ' + increases.length + (FIX_INCREASES ? '  (apply hobe)' : '  (apply hobe NA — FIX_INCREASES = false)'));
-say('  mot je gulo bodlano hobe        : ' + planned.length);
+say('');
+say('  A1) pending komano, WD te sakkhyo ache : ' + decreases.length + '  (apply hobe)');
+say('  A2) pending komano, SUDHU bill er vitti : ' + billOnly.length +
+    (APPLY_BILL_ONLY ? '  (apply hobe)' : '  (apply hobe NA — APPLY_BILL_ONLY = false)'));
+say('  B)  pending barano                     : ' + increases.length +
+    (FIX_INCREASES ? '  (apply hobe)' : '  (apply hobe NA — FIX_INCREASES = false)'));
+say('  ------------------------------------------------------');
+say('  mot je gulo bodlano hobe               : ' + planned.length);
 
 say('');
 say('-'.repeat(104));
-say('A)  PENDING KOMANO HOBE  —  kaj hoye geche kintu pending kome ni');
+say('A1)  PENDING KOMANO  —  Contractor_WD te kaj er sakkhyo ACHE   [apply hobe]');
 say('-'.repeat(104));
-say('  Ei gulo i asol somossa: pending beshi dekhacche, tai ekei kaj abar record ar bill kora jachhe.');
+say('  Contractor_WD bolche kaj hoyeche, othocho pending kome ni. Ei gulo tei asol somossa:');
+say('  pending beshi dekhacche, tai ekei kaj abar record ar bill kora jachhe.');
 say('');
 if (!decreases.length) say('  (kichu nei)');
 decreases.slice(0, SHOW_ROWS).forEach(r => say(line(r)));
@@ -252,7 +268,22 @@ if (decreases.length > SHOW_ROWS) say('  ... aro ' + (decreases.length - SHOW_RO
 
 say('');
 say('-'.repeat(104));
-say('B)  PENDING BARANO DORKAR  —  pending dorkarer cheye beshi kome geche');
+say('A2)  PENDING KOMANO  —  Contractor_WD te KICHUI NEI (done=0), sudhu live bill ache' +
+    (APPLY_BILL_ONLY ? '   [apply hobe]' : '   [apply hobe NA]'));
+say('-'.repeat(104));
+say('  Ei gulo te WD er kono sakkhyo nei — siddhanto ta puro bill er upor dariye.');
+say('  Sombhabbo karon: purono delete bug WD row muche diye pending puro phirie diyechhilo,');
+say('  kintu live bill ta thekei geche. Seta thik hole pending 0 kora sothik.');
+say('  KINTU bill ta jodi DOUBLE-BILLED hoy, tahole pending 0 kore dile boidho kaj record');
+say('  korai atke jabe. Tai age double-billing check ta sere nin.');
+say('');
+if (!billOnly.length) say('  (kichu nei)');
+billOnly.slice(0, SHOW_ROWS).forEach(r => say(line(r)));
+if (billOnly.length > SHOW_ROWS) say('  ... aro ' + (billOnly.length - SHOW_ROWS) + ' ta');
+
+say('');
+say('-'.repeat(104));
+say('B)   PENDING BARANO DORKAR  —  pending dorkarer cheye beshi kome geche');
 say('-'.repeat(104));
 say('  Ei gulo te boidho kaj thakleo pending kom dekhabe. Pending BARANO mane notun kaj record');
 say('  korar sujog toiri kora, tai ei ta default e apply kora hoy NA. Hate dekhe nishchit hoye');
