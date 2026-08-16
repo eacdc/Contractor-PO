@@ -242,9 +242,12 @@ export const billsAPI = {
       method: 'PATCH',
       body: { contractorBillNumber, updateShared },
     }),
-  delete: (billNumber) => apiCall(`/bills/${billNumber}`, {
-    method: 'DELETE'
-  })
+  // The backend refuses to delete a paid bill unless force is set, so that
+  // reversing work someone has already been paid for takes a second decision.
+  delete: (billNumber, force = false) => apiCall(
+    `/bills/${billNumber}${force ? '?force=true' : ''}`,
+    { method: 'DELETE' }
+  )
 };
 
 // Bill editing API (qtyCompleted only)
