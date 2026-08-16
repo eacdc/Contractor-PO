@@ -28,6 +28,12 @@ const DB_NAME       = 'Contractor_PO';
 const APPLY         = false;  // false = sudhu report.  true = data bodlabe.
 const ROLLBACK      = false;  // true = backup collection theke purono value phirie ana
 const FIX_INCREASES = false;  // niche "pending barano" section dekhun
+// true  = kaj hoyeche dhora hobe max(Contractor_WD, live bill).  Purono delete
+//         route Contractor_WD row muche felechilo, tai kono kono khetre live
+//         bill e WD er cheye BESHI ache. Sudhu WD dhorle oi difference ta abar
+//         "pending" hoye jeto — jeta already bill hoye gechhe.
+// false = sudhu Contractor_WD dhora hobe (ei ta NIRAPOD NOY, dekhe bujhe korun)
+const COUNT_LIVE_BILLS = true;
 const JOB_FILTER    = '';     // ekta job e seemabodhho rakhte: 'J04070_25_26'
 const TOL           = 0.5;    // eto tuku difference ignore kora hobe
 const MAX_CHANGES   = 100000; // safety cap — er beshi hole kichui apply hobe na
@@ -133,8 +139,25 @@ d.getCollection('Bills').find({}).forEach(b => {
 const decreases = [];   // pending komano — kaj hoye geche kintu pending komeni
 const increases = [];   // pending barano — pending dorkarer cheye beshi komeche
 let opsScanned = 0;
+let billHigherCount = 0;   // koto khetre live bill > Contractor_WD
+let billHigherQty = 0;     // oi khetre koto qty bill er karone rokkha pelo
+let ambiguousCount = 0;    // ekei job e ekei naam+rate er ekadhik op
 
-d.getCollection('JobopsMaster').find(JOB_FILTER ? { jobId: JOB_FILTER } : {}).forEach(j => {
+const jobDocs = d.getCollection('JobopsMaster').find(JOB_FILTER ? { jobId: JOB_FILTER } : {}).toArray();
+
+// Bill gulo (jobNumber, opsName, rate) diye khuje pawa jay — opId diye noy.
+// Tai ekei job e ekei naam+rate er duto op thakle kon bill kar seta bola jay na;
+// oi khetre bill er hisheb bad diye sudhu Contractor_WD dhora hobe.
+const opKeyCount = {};
+jobDocs.forEach(j => {
+  const jid = norm(j.jobId);
+  (j.ops || []).forEach(o => {
+    const k = [jid, opById[norm(o.opId)] || '(op doc nei)', r2(o.valuePerBook)].join('|');
+    opKeyCount[k] = (opKeyCount[k] || 0) + 1;
+  });
+});
+
+jobDocs.forEach(j => {
   const jid = norm(j.jobId);
 
   (j.ops || []).forEach((o, idx) => {
@@ -144,13 +167,25 @@ d.getCollection('JobopsMaster').find(JOB_FILTER ? { jobId: JOB_FILTER } : {}).fo
     const pending = Number(o.pendingOpsQty || 0);
     const done    = (wdByJobOp[jid + '|' + oid] || { total: 0, billed: 0, unsaved: 0 });
 
+    const opsName = opById[oid] || '(op doc nei)';
+    const billKey = [jid, opsName, r2(o.valuePerBook)].join('|');
+    const bq = billQty[billKey] || { live: 0, dead: 0 };
+    const ambiguous = (opKeyCount[billKey] || 0) > 1;
+
+    // Live bill e ja ache seta obosshoi kaj hoye gechhe. Contractor_WD er
+    // cheye beshi hole seti i dhora hobe, na hole WD.
+    let effectiveDone = done.total;
+    if (COUNT_LIVE_BILLS && !ambiguous && bq.live > done.total + TOL) {
+      billHigherCount++;
+      billHigherQty += r2(bq.live - done.total);
+      effectiveDone = bq.live;
+    }
+    if (ambiguous) ambiguousCount++;
+
     // Packaging segment e kaj total er cheye beshi hote pare, tai clamp.
-    const newPending = Math.max(0, Math.min(total, total - done.total));
+    const newPending = Math.max(0, Math.min(total, total - effectiveDone));
     const delta = r2(newPending - pending);
     if (Math.abs(delta) <= TOL) return;
-
-    const opsName = opById[oid] || '(op doc nei)';
-    const bq = billQty[[jid, opsName, r2(o.valuePerBook)].join('|')] || { live: 0, dead: 0 };
 
     const rec = {
       docId: j._id,
@@ -163,6 +198,9 @@ d.getCollection('JobopsMaster').find(JOB_FILTER ? { jobId: JOB_FILTER } : {}).fo
       newPending: newPending,
       delta: delta,
       done: done.total,
+      effectiveDone: effectiveDone,
+      usedBill: effectiveDone !== done.total,
+      ambiguous: ambiguous,
       doneBilled: done.billed,
       doneUnsaved: done.unsaved,
       billLive: bq.live,
@@ -181,7 +219,9 @@ const line = r =>
   'total=' + String(r.total).padEnd(10) +
   'pending ' + String(r.oldPending).padEnd(10) + '-> ' + String(r.newPending).padEnd(10) +
   'done=' + String(r.done).padEnd(10) +
-  'bill[live=' + r.billLive + ' del=' + r.billDead + ']';
+  'bill[live=' + r.billLive + ' del=' + r.billDead + ']' +
+  (r.usedBill ? '  <- bill>wd, bill er hisheb dhora holo' : '') +
+  (r.ambiguous ? '  <- ekei naam+rate er ekadhik op, bill bad deoa holo' : '');
 
 say('');
 say('='.repeat(104));
@@ -189,7 +229,13 @@ say('  JobopsMaster pendingOpsQty CLEANUP   db: ' + DB_NAME +
     (JOB_FILTER ? '   job: ' + JOB_FILTER : '   (sob job)'));
 say('  MODE: ' + (APPLY ? '*** APPLY — data bodlabe ***' : 'DRY RUN — kichui bodlabe na'));
 say('='.repeat(104));
+say('  kaj hoyeche hisheb              : ' +
+    (COUNT_LIVE_BILLS ? 'max(Contractor_WD, live bill)' : 'sudhu Contractor_WD  ⚠ NIRAPOD NOY'));
 say('  JobopsMaster operations scanned : ' + opsScanned);
+say('  live bill > Contractor_WD       : ' + billHigherCount + ' operation, ' + r2(billHigherQty) + ' qty');
+say('     ^ ei qty ta purono delete bug e Contractor_WD theke hariye gechhilo.');
+say('       Bill dhora na hole ei tuku abar pending hoye jeto — othocho already bill hoye gechhe.');
+say('  ekei naam+rate er ekadhik op    : ' + ambiguousCount + '  (ei gulo te bill bad diye sudhu WD dhora hoyeche)');
 say('  pending KOMANO dorkar           : ' + decreases.length);
 say('  pending BARANO dorkar           : ' + increases.length + (FIX_INCREASES ? '  (apply hobe)' : '  (apply hobe NA — FIX_INCREASES = false)'));
 say('  mot je gulo bodlano hobe        : ' + planned.length);
