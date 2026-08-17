@@ -139,22 +139,20 @@
       }
 
       // ===== PAID BILL EDIT WINDOW =====
-      // A paid bill stays editable/deletable for two months from its payment
+      // A paid bill stays editable/deletable for two weeks from its payment
       // date; after that the row locks so settled books cannot be changed.
-      const PAID_EDIT_WINDOW_MONTHS = 2;
+      const PAID_EDIT_WINDOW_DAYS = 14;
+      const PAID_EDIT_WINDOW_LABEL = '2 weeks';
 
-      function addMonths(date, months) {
+      function addDays(date, days) {
         const d = new Date(date.getTime());
-        const day = d.getDate();
-        d.setMonth(d.getMonth() + months);
-        // 31 Dec + 2 months rolls into March, so clamp back to the last day.
-        if (d.getDate() < day) d.setDate(0);
+        d.setDate(d.getDate() + days);
         return d;
       }
 
       /**
        * Lock state for a bill row.
-       * Unpaid bills are never locked. Paid bills lock PAID_EDIT_WINDOW_MONTHS
+       * Unpaid bills are never locked. Paid bills lock PAID_EDIT_WINDOW_DAYS
        * after their payment date; a bill with no usable payment date stays open
        * so a data gap can never freeze a row permanently.
        */
@@ -167,12 +165,12 @@
         if (!paidOn || Number.isNaN(paidOn.getTime())) {
           return { locked: false, lockDate: null, hasPaidDate: false };
         }
-        const lockDate = addMonths(paidOn, PAID_EDIT_WINDOW_MONTHS);
+        const lockDate = addDays(paidOn, PAID_EDIT_WINDOW_DAYS);
         return { locked: Date.now() >= lockDate.getTime(), lockDate, hasPaidDate: true };
       }
 
       function lockedTitleText(lockInfo) {
-        return `Locked on ${formatDate(lockInfo.lockDate)} — a paid bill can only be edited or deleted within ${PAID_EDIT_WINDOW_MONTHS} months of its payment date.`;
+        return `Locked on ${formatDate(lockInfo.lockDate)} — a paid bill can only be edited or deleted within ${PAID_EDIT_WINDOW_LABEL} of its payment date.`;
       }
 
       function unlockedTitleText(lockInfo) {
@@ -191,7 +189,7 @@
         if (!lockInfo.locked) return true;
         showWarning(
           `Bill ${billNumber} is locked. Paid bills can only be edited or deleted within ` +
-          `${PAID_EDIT_WINDOW_MONTHS} months of the payment date (locked on ${formatDate(lockInfo.lockDate)}).`,
+          `${PAID_EDIT_WINDOW_LABEL} of the payment date (locked on ${formatDate(lockInfo.lockDate)}).`,
           '#ef4444'
         );
         return false;
@@ -1409,7 +1407,7 @@
           isPaid ? 'paid' : 'unpaid'
         } bill(s). Grand total: ${grandTotal.toFixed(2)}` + (
           isPaid
-            ? ` — paid bills can be edited or deleted for ${PAID_EDIT_WINDOW_MONTHS} months after the payment date, then they lock.`
+            ? ` — paid bills can be edited or deleted for ${PAID_EDIT_WINDOW_LABEL} after the payment date, then they lock.`
             : ''
         );
 
