@@ -525,7 +525,16 @@
           updateSubmitButtonState();
           if (billData.length > 0 && billTablePanel) billTablePanel.classList.remove('panel-collapsed');
         } catch (e) {
+          // This used to fail silently, which looked identical to the contractor
+          // simply having no pending work — the rows then appeared only after a
+          // job search, through the per-job call, and the gap was invisible.
           console.error('Error loading all unsaved work for contractor:', e);
+          if (workDoneWarning) {
+            workDoneWarning.style.color = '#f59e0b';
+            workDoneWarning.textContent =
+              `Could not load this contractor's saved-but-unsubmitted work (${e.message || 'request failed'}). ` +
+              `Search a job to load that job's rows, or try again.`;
+          }
         }
       }
 
