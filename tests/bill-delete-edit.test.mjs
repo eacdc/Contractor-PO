@@ -141,44 +141,53 @@ check('two billed rows same opsId -> only one removed',
 // ===========================================================================
 // 3. EDIT-QTY — pending delta with the packaging allowance (real block)
 // ===========================================================================
+// Whole per-op loop body, so the recorded-work lookups it now depends on are
+// declared inside the extracted block.
 const editPendingSrc = extract(
-  'let newPending = currentPending - deltaQty;',
-  'newPending = Math.max(0, Math.min(totalOpsQty, newPending));', 'edit pending');
+  'const totalOpsQty = Number(jobOp.totalOpsQty || 0);\n        const opKey = String(jobOp.opId);',
+  'const newPending = Math.max(0, Math.min(totalOpsQty, totalOpsQty - recordedAfter));', 'edit pending');
 
-const runEditPending = (jobOpsMaster, currentPending, totalOpsQty, deltaQty) => {
-  let rejected = false;
+const runEditPending = (jobOpsMaster, recordedBeforeQty, totalOpsQty, deltaQty) => {
   const body = editPendingSrc
     .replace(/await session\.abortTransaction\(\);/g, '')
     .replace(/session\.endSession\(\);/g, '')
     .replace(/return res\.status\(400\)\.json\(\{[\s\S]*?\}\);/, 'return { rejected: true };');
-  const fn = new Function('jobOpsMaster', 'currentPending', 'totalOpsQty', 'deltaQty',
-    'jobNumber', 'normalizedName', 'packagingAllowanceFor',
+  const fn = new Function('jobOpsMaster', 'jobOp', 'recordedByOpForEdit', 'appliedDeltaByOp',
+    'deltaQty', 'jobNumber', 'normalizedName', 'packagingAllowanceFor',
     body + '\n return { rejected: false, newPending };');
-  const r = fn(jobOpsMaster, currentPending, totalOpsQty, deltaQty, 'J1', 'Op', packagingAllowanceFor);
+  const r = fn(jobOpsMaster, { opId: 'A', totalOpsQty }, { A: recordedBeforeQty }, {},
+               deltaQty, 'J1', 'Op', packagingAllowanceFor);
   return r.rejected ? 'REJECT' : r.newPending;
 };
 
-console.log('\n3) BILL EDIT-QTY  ->  pending delta');
+console.log('\n3) BILL EDIT-QTY  ->  pending, derived from recorded work');
 console.log('   (real block from routes.js)\n');
 
 const nonPkg = { segmentName: 'Commercial', totalQty: 10000 };
 const pkg    = { segmentName: 'Packaging',  totalQty: 10000 };   // allowance 500
 
-check('non-packaging: increase within pending',
-  runEditPending(nonPkg, 4000, 10000, 3000), 1000);
-check('non-packaging: increase beyond pending -> reject',
-  runEditPending(nonPkg, 4000, 10000, 5000), 'REJECT');
-check('non-packaging: decrease -> pending grows, capped at total',
-  runEditPending(nonPkg, 4000, 10000, -8000), 10000);
+check('non-packaging: increase within what is left',
+  runEditPending(nonPkg, 6000, 10000, 3000), 1000);
+check('non-packaging: increase beyond what is left -> reject',
+  runEditPending(nonPkg, 6000, 10000, 5000), 'REJECT');
+check('non-packaging: decrease -> pending grows',
+  runEditPending(nonPkg, 8000, 10000, -8000), 10000);
 
-check('packaging: increase inside allowance (pending 0, +400)',
-  runEditPending(pkg, 0, 10000, 400), 0);
-check('packaging: increase at exactly the allowance (+500)',
-  runEditPending(pkg, 0, 10000, 500), 0);
+check('packaging: increase inside allowance (10000 recorded, +400 of 500)',
+  runEditPending(pkg, 10000, 10000, 400), 0);
+check('packaging: increase to exactly the allowance (+500)',
+  runEditPending(pkg, 10000, 10000, 500), 0);
 check('packaging: increase beyond allowance (+600) -> reject',
-  runEditPending(pkg, 0, 10000, 600), 'REJECT');
-check('packaging: normal increase within pending',
-  runEditPending(pkg, 4000, 10000, 3000), 1000);
+  runEditPending(pkg, 10000, 10000, 600), 'REJECT');
+check('packaging: normal increase within what is left',
+  runEditPending(pkg, 6000, 10000, 3000), 1000);
+
+// The gap the walkthrough exposed: an operation past its total, then reduced.
+// pending clamps at 0, so a delta-based update overstated it by the overshoot.
+check('packaging: overshot 21000/20000, bill cut by 2000 -> pending 1000, not 2000',
+  runEditPending({ segmentName: 'Packaging', totalQty: 20000 }, 21000, 20000, -2000), 1000);
+check('packaging: overshot then reduced below total -> pending from recorded work',
+  runEditPending({ segmentName: 'Packaging', totalQty: 20000 }, 21000, 20000, -6000), 5000);
 
 // ===========================================================================
 // 4. EDIT-QTY — Contractor_WD adjustment (real block)
