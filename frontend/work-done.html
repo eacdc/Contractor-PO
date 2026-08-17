@@ -354,6 +354,18 @@
         return Math.max(0, Math.round(Math.min(byPending, byRecorded)));
       }
 
+      // Pending for an operation, read off the work recorded against it:
+      // whatever the job holds minus what has been recorded, never below 0.
+      // This is the rule the server applies, and unlike "old pending ± qty" it
+      // stays right when an operation has overshot its total — a Packaging
+      // operation may be saved past the job quantity by the 5% allowance, and
+      // pending floors at 0 while it is.
+      function pendingFromRecorded(totalOpsQty, recordedOpsQty) {
+        const total = Number(totalOpsQty) || 0;
+        const recorded = Math.max(0, Number(recordedOpsQty) || 0);
+        return Math.min(total, Math.max(0, total - recorded));
+      }
+
       // Recalculate an input's cap from the data attributes carried on it, so
       // the limit stays right after a save changes pending and recorded.
       function maxAddForInput(input, pendingOverride) {
@@ -843,6 +855,10 @@
               recordedOpsQty: op.recordedOpsQty !== undefined ? recordedSoFar : null,
               packagingTotalQty
             });
+            // Only carried when the server actually reported recorded work, so
+            // "not reported" stays distinguishable from "nothing recorded yet".
+            const recordedAttr = op.recordedOpsQty !== undefined
+              ? `data-recorded-ops-qty="${recordedSoFar}"` : '';
             const row = document.createElement("tr");
             row.innerHTML = `
               <td>${op.opsName || '-'}</td>
@@ -858,7 +874,7 @@
                   data-op-id="${op.opId}"
                   data-job="${jobNumber}"
                   data-total-ops-qty="${op.totalOpsQty || 0}"
-                  data-recorded-ops-qty="${recordedSoFar}"
+                  ${recordedAttr}
                   data-value-per-book="${op.valuePerBook || 0}"
                 />
               </td>
@@ -1553,6 +1569,10 @@
                       recordedOpsQty: op.recordedOpsQty !== undefined ? recordedSoFar : null,
                       packagingTotalQty
                     });
+                    // As in the per-job panel: absent when the server did not
+                    // report recorded work for this operation.
+                    const recordedAttr = op.recordedOpsQty !== undefined
+                      ? `data-recorded-ops-qty="${recordedSoFar}"` : '';
                     const row = document.createElement("tr");
                     row.innerHTML = `
                       <td>${op.opsName || '-'}</td>
@@ -1568,7 +1588,7 @@
                           data-op-id="${op.opId}"
                           data-job="${jobNumber}"
                           data-total-ops-qty="${op.totalOpsQty || 0}"
-                          data-recorded-ops-qty="${recordedSoFar}"
+                          ${recordedAttr}
                           data-value-per-book="${op.valuePerBook || 0}"
                         />
                       </td>
@@ -2064,12 +2084,22 @@
                 if (row) {
                   const pendingCell = row.querySelector('.pending-cell');
                   if (pendingCell) {
-                    const restored = Math.max(0, (parseFloat(pendingCell.textContent || '0') || 0) + delta);
-                    pendingCell.textContent = restored;
+                    // Where recorded work is known, pending is derived from it,
+                    // the same way the server recomputes it. Adding the deleted
+                    // quantity straight back overstates pending whenever the
+                    // operation had overshot its total: pending had already
+                    // floored at 0, so an operation with 100000 left, saved at
+                    // 106000 under the Packaging allowance, came back as 106000.
+                    let restored;
                     if (input.dataset.recordedOpsQty !== undefined) {
-                      input.dataset.recordedOpsQty =
-                        String(Math.max(0, (Number(input.dataset.recordedOpsQty) || 0) - delta));
+                      const recordedAfter =
+                        Math.max(0, (Number(input.dataset.recordedOpsQty) || 0) - delta);
+                      input.dataset.recordedOpsQty = String(recordedAfter);
+                      restored = pendingFromRecorded(input.dataset.totalOpsQty, recordedAfter);
+                    } else {
+                      restored = Math.max(0, (parseFloat(pendingCell.textContent || '0') || 0) + delta);
                     }
+                    pendingCell.textContent = restored;
                     input.max = maxAddForInput(input, restored);
                   }
                 }

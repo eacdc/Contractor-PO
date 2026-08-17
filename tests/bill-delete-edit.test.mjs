@@ -236,6 +236,58 @@ check('matched by opId even when the name differs',
             { opId: 'A', opsName: 'New Name', valuePerBook: 2, deltaQty: 1000 }),
   ['A:Old Name:6000:Yes']);
 
+// ===========================================================================
+// 5. UNSAVE — pending after deleting a saved-but-not-billed row (real block)
+// ===========================================================================
+// This is the Delete button in Work Done > Bill Details, which reverses a
+// Contractor_WD row with savedInBill:'No'. It used to add the quantity back to
+// pending; pending floors at 0, so a Packaging operation saved past its total
+// under the 5% allowance came back with the overshoot as fresh pending.
+const unsavePendingSrc = extract(
+  'const wdDocsAfterUnsave = await ContractorWD.find(',
+  'jobOp.pendingOpsQty = Math.min(totalOpsQtyForUnsave, Math.max(0, totalOpsQtyForUnsave - recordedAfterUnsave));',
+  'unsave pending');
+
+const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+
+// wdDocs is the Contractor_WD state AFTER the row has been removed, which is
+// what the route reads: it saves the reversal before recomputing pending.
+const runUnsavePending = async (jobOp, wdDocs) => {
+  const ContractorWD = { find: () => ({ lean: async () => wdDocs }) };
+  const fn = new AsyncFunction('jobOp', 'jobNumber', 'ContractorWD',
+    unsavePendingSrc + '\n return jobOp.pendingOpsQty;');
+  return fn(jobOp, 'J1', ContractorWD);
+};
+
+console.log('\n5) SAVED-WORK DELETE (unsave)  ->  pending from recorded work');
+console.log('   (real block from routes.js)\n');
+
+// The reported case: 120000 total, 20000 already recorded by someone else,
+// 106000 saved under the packaging allowance and then deleted.
+check('packaging overshoot deleted -> pending back to 100000, not 106000',
+  await runUnsavePending({ opId: 'A', totalOpsQty: 120000, pendingOpsQty: 0 },
+                         [{ opsDone: [{ opsId: 'A', opsDoneQty: 20000 }] }]), 100000);
+
+check('only saved row deleted -> pending back to the full total',
+  await runUnsavePending({ opId: 'A', totalOpsQty: 10000, pendingOpsQty: 2000 }, []), 10000);
+
+check('work recorded by another contractor stays out of pending',
+  await runUnsavePending({ opId: 'A', totalOpsQty: 10000, pendingOpsQty: 0 },
+                         [{ opsDone: [{ opsId: 'A', opsDoneQty: 3000 }] },
+                          { opsDone: [{ opsId: 'A', opsDoneQty: 1000 }] }]), 6000);
+
+check('other operations are not counted',
+  await runUnsavePending({ opId: 'A', totalOpsQty: 10000, pendingOpsQty: 0 },
+                         [{ opsDone: [{ opsId: 'B', opsDoneQty: 9000 }] }]), 10000);
+
+check('still overshot after the reversal -> clamped to 0',
+  await runUnsavePending({ opId: 'A', totalOpsQty: 10000, pendingOpsQty: 0 },
+                         [{ opsDone: [{ opsId: 'A', opsDoneQty: 10400 }] }]), 0);
+
+check('pending was already wrong -> the reversal corrects it',
+  await runUnsavePending({ opId: 'A', totalOpsQty: 30000, pendingOpsQty: 30000 },
+                         [{ opsDone: [{ opsId: 'A', opsDoneQty: 22000 }] }]), 8000);
+
 console.log(`\n${'='.repeat(70)}`);
 console.log(`  ${pass} passed, ${fail} failed`);
 console.log('='.repeat(70));
