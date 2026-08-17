@@ -288,6 +288,66 @@ check('pending was already wrong -> the reversal corrects it',
   await runUnsavePending({ opId: 'A', totalOpsQty: 30000, pendingOpsQty: 30000 },
                          [{ opsDone: [{ opsId: 'A', opsDoneQty: 22000 }] }]), 8000);
 
+// ===========================================================================
+// 6. PENDING ENDPOINT — which operations reach the entry screen (real block)
+// ===========================================================================
+// pendingOpsQty 0 ends an ordinary job's operation, but a Packaging operation
+// may still be worked under the allowance and the save cap accepts it. If the
+// row is filtered out the quantity can never be entered, which is what happened
+// after a bill was cut from 106000 to 100000 on a 100000 operation.
+// Brace matching stops at the callback's own closing brace, so the statement is
+// taken by its end anchor instead — there is no nested `});` inside it.
+const pendingFilterSrc = extract(
+  'const pendingOps = (jobOpsMaster.ops || []).filter(op => {',
+  '});', 'pending filter');
+
+const runPendingFilter = (jobOpsMaster, recordedByOp) => {
+  const fn = new Function('jobOpsMaster', 'recordedByOp', 'allowance', 'QTY_TOL',
+    pendingFilterSrc + '\n return pendingOps.map(o => o.opId);');
+  return fn(jobOpsMaster, recordedByOp, packagingAllowanceFor(jobOpsMaster), 0.5);
+};
+
+console.log('\n6) PENDING ENDPOINT  ->  operations returned to the entry screen');
+console.log('   (real block from routes.js)\n');
+
+const opsOneFull = [{ opId: 'A', totalOpsQty: 100000, pendingOpsQty: 0 }];
+
+check('non-packaging, fully recorded -> row dropped',
+  runPendingFilter({ segmentName: 'Commercial', totalQty: 100000, ops: opsOneFull },
+                   { A: 100000 }), []);
+
+check('packaging, fully recorded -> row kept for the allowance',
+  runPendingFilter({ segmentName: 'Packaging', totalQty: 100000, ops: opsOneFull },
+                   { A: 100000 }), ['A']);
+
+check('packaging, bill cut 106000 -> 100000 on a 100000 op -> row kept',
+  runPendingFilter({ segmentName: 'Packaging', totalQty: 100000, ops: opsOneFull },
+                   { A: 100000 }), ['A']);
+
+check('packaging, allowance fully used -> row dropped',
+  runPendingFilter({ segmentName: 'Packaging', totalQty: 100000, ops: opsOneFull },
+                   { A: 105000 }), []);
+
+check('packaging, allowance used past the limit -> row dropped',
+  runPendingFilter({ segmentName: 'Packaging', totalQty: 100000, ops: opsOneFull },
+                   { A: 106000 }), []);
+
+check('packaging, part of the allowance left -> row kept',
+  runPendingFilter({ segmentName: 'Packaging', totalQty: 100000, ops: opsOneFull },
+                   { A: 104600 }), ['A']);
+
+check('pending above 0 is kept whatever the segment',
+  runPendingFilter({ segmentName: 'Commercial', totalQty: 100000,
+                     ops: [{ opId: 'A', totalOpsQty: 100000, pendingOpsQty: 2000 }] },
+                   { A: 98000 }), ['A']);
+
+check('mixed ops: one has pending, one has allowance, one is spent',
+  runPendingFilter({ segmentName: 'Packaging', totalQty: 100000, ops: [
+    { opId: 'A', totalOpsQty: 100000, pendingOpsQty: 500 },
+    { opId: 'B', totalOpsQty: 100000, pendingOpsQty: 0 },
+    { opId: 'C', totalOpsQty: 100000, pendingOpsQty: 0 }
+  ] }, { A: 99500, B: 100000, C: 105000 }), ['A', 'B']);
+
 console.log(`\n${'='.repeat(70)}`);
 console.log(`  ${pass} passed, ${fail} failed`);
 console.log('='.repeat(70));

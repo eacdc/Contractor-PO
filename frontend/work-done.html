@@ -35,6 +35,21 @@
         white-space: nowrap;
       }
 
+      /* A Packaging operation whose own quantity is fully recorded still has the
+         allowance to work with. Pending reads 0 there, so the row needs to say
+         what is left or it reads as a row that should not be on the screen. */
+      .allowance-note {
+        display: inline-block;
+        margin-left: 6px;
+        padding: 1px 6px;
+        border-radius: 10px;
+        background-color: #0ea5e9;
+        color: #ffffff;
+        font-size: 11px;
+        font-weight: 600;
+        white-space: nowrap;
+      }
+
       .carried-over-banner {
         margin: 0 0 12px;
         padding: 10px 14px;
@@ -364,6 +379,17 @@
         const total = Number(totalOpsQty) || 0;
         const recorded = Math.max(0, Number(recordedOpsQty) || 0);
         return Math.min(total, Math.max(0, total - recorded));
+      }
+
+      // A Packaging operation can be worked past the job's own quantity by the
+      // allowance, so it stays on the screen with pending at 0. Nothing about
+      // "Pending Qty 0" explains that, hence the badge — it only appears while
+      // pending is 0 and there is allowance left to enter.
+      function allowanceNote(op, inputMax, pendingShown) {
+        if (Number(pendingShown) > 0) return '';
+        const room = Math.round(Number(op.allowanceRoom) || 0);
+        const left = Math.min(room, Math.round(Number(inputMax) || 0));
+        return left > 0 ? `<span class="allowance-note">allowance left: ${left}</span>` : '';
       }
 
       // Recalculate an input's cap from the data attributes carried on it, so
@@ -861,7 +887,7 @@
               ? `data-recorded-ops-qty="${recordedSoFar}"` : '';
             const row = document.createElement("tr");
             row.innerHTML = `
-              <td>${op.opsName || '-'}</td>
+              <td>${op.opsName || '-'}${allowanceNote(op, inputMax, adjustedPendingQty)}</td>
               <td>${op.totalOpsQty || 0}</td>
               <td class="pending-cell">${adjustedPendingQty}</td>
               <td>
@@ -1575,7 +1601,7 @@
                       ? `data-recorded-ops-qty="${recordedSoFar}"` : '';
                     const row = document.createElement("tr");
                     row.innerHTML = `
-                      <td>${op.opsName || '-'}</td>
+                      <td>${op.opsName || '-'}${allowanceNote(op, inputMax, adjustedPendingQty)}</td>
                       <td>${op.totalOpsQty || 0}</td>
                       <td class="pending-cell">${adjustedPendingQty}</td>
                       <td>
