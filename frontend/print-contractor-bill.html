@@ -129,6 +129,74 @@
         return d.toLocaleDateString();
       }
 
+      function showWarning(message, color = '') {
+        warningEl.textContent = message;
+        warningEl.style.color = color;
+        setTimeout(() => {
+          warningEl.textContent = '';
+          warningEl.style.color = '';
+        }, 4000);
+      }
+
+      // ===== PAID BILL EDIT WINDOW =====
+      // A paid bill stays editable/deletable for two months from its payment
+      // date; after that the row locks so settled books cannot be changed.
+      const PAID_EDIT_WINDOW_MONTHS = 2;
+
+      function addMonths(date, months) {
+        const d = new Date(date.getTime());
+        const day = d.getDate();
+        d.setMonth(d.getMonth() + months);
+        // 31 Dec + 2 months rolls into March, so clamp back to the last day.
+        if (d.getDate() < day) d.setDate(0);
+        return d;
+      }
+
+      /**
+       * Lock state for a bill row.
+       * Unpaid bills are never locked. Paid bills lock PAID_EDIT_WINDOW_MONTHS
+       * after their payment date; a bill with no usable payment date stays open
+       * so a data gap can never freeze a row permanently.
+       */
+      function getPaidLockInfo(bill) {
+        if (!bill || bill.paymentStatus !== 'Yes') {
+          return { locked: false, lockDate: null, hasPaidDate: true };
+        }
+        const raw = bill.paymentDate || bill.createdAt;
+        const paidOn = raw ? new Date(raw) : null;
+        if (!paidOn || Number.isNaN(paidOn.getTime())) {
+          return { locked: false, lockDate: null, hasPaidDate: false };
+        }
+        const lockDate = addMonths(paidOn, PAID_EDIT_WINDOW_MONTHS);
+        return { locked: Date.now() >= lockDate.getTime(), lockDate, hasPaidDate: true };
+      }
+
+      function lockedTitleText(lockInfo) {
+        return `Locked on ${formatDate(lockInfo.lockDate)} — a paid bill can only be edited or deleted within ${PAID_EDIT_WINDOW_MONTHS} months of its payment date.`;
+      }
+
+      function unlockedTitleText(lockInfo) {
+        if (!lockInfo.hasPaidDate) return 'No payment date recorded for this bill.';
+        return lockInfo.lockDate ? `Editable until ${formatDate(lockInfo.lockDate)}` : '';
+      }
+
+      /**
+       * Re-check the lock before acting, so a row that expired while the page
+       * was open cannot slip an edit or delete through.
+       */
+      function ensureBillUnlocked(billNumber) {
+        const bill = allBills.find((b) => b.billNumber === billNumber);
+        if (!bill) return true;
+        const lockInfo = getPaidLockInfo(bill);
+        if (!lockInfo.locked) return true;
+        showWarning(
+          `Bill ${billNumber} is locked. Paid bills can only be edited or deleted within ` +
+          `${PAID_EDIT_WINDOW_MONTHS} months of the payment date (locked on ${formatDate(lockInfo.lockDate)}).`,
+          '#ef4444'
+        );
+        return false;
+      }
+
       function calculateBillTotal(bill) {
         if (!bill || !Array.isArray(bill.jobs)) return 0;
         const billAmount = bill.jobs.reduce((sumJobs, job) => {
@@ -462,13 +530,28 @@
         }
       }
 
-      // ===== BILL EDITING (UNPAID ONLY, QTY COMPLETED ONLY) =====
+      // ===== BILL EDITING (QTY COMPLETED ONLY) =====
+      // Unpaid bills are always editable; a paid bill is editable only inside
+      // its two-month window (see getPaidLockInfo).
       function openBillEditor(bill) {
         currentEditingBill = bill;
 
         const contractorId = contractorSelect.value;
         if (!contractorId) {
           alert('Please select a contractor first.');
+          return;
+        }
+
+        // The single-bill fetch may not carry the payment fields, so fall back
+        // to the row we already have in the list.
+        const listedBill = allBills.find((b) => b.billNumber === bill.billNumber);
+        const isPaidBill = (bill.paymentStatus || listedBill?.paymentStatus) === 'Yes';
+        const lockInfo = getPaidLockInfo(listedBill || bill);
+        if (lockInfo.locked) {
+          showWarning(
+            `Bill ${bill.billNumber} is locked (locked on ${formatDate(lockInfo.lockDate)}).`,
+            '#ef4444'
+          );
           return;
         }
 
@@ -515,7 +598,11 @@
               Edit Bill ${bill.billNumber}
             </h2>
             <p style="margin:4px 0 0;font-size:12px;color:#9ca3af;">
-              You can change completed quantities or delete operations/jobs for this unpaid bill.
+              ${isPaidBill
+                ? `This bill is already PAID — ${lockInfo.lockDate
+                    ? `changes are allowed until ${formatDate(lockInfo.lockDate)}`
+                    : 'no payment date is recorded for it'} and they do NOT undo the payment already made.`
+                : 'You can change completed quantities or delete operations/jobs for this unpaid bill.'}
             </p>
           </div>
           <button id="bill-edit-close-btn" style="
@@ -819,6 +906,16 @@
             return;
           }
 
+          // Editing a settled bill needs a second, explicit decision.
+          if (isPaidBill && !confirm(
+            `Bill ${bill.billNumber} is marked PAID.\n\n` +
+            `Saving will change the recorded work and restore pending quantities, ` +
+            `but it will NOT change the payment that was already made.\n\n` +
+            `Save these changes?`
+          )) {
+            return;
+          }
+
           billEditAPI.editQuantities(bill.billNumber, contractorId, changes)
             .then(() => {
               alert('Bill updated successfully.');
@@ -827,7 +924,14 @@
             })
             .catch((error) => {
               console.error('Error editing bill quantities:', error);
-              alert(error.message || 'Error editing bill. Please try again.');
+              const message = error.message || '';
+              if (isPaidBill && /paid/i.test(message)) {
+                // The server has its own rule about paid bills; say so plainly
+                // instead of leaving the user staring at a bare API error.
+                alert(`${message}\n\nThe server is still refusing edits on paid bills.`);
+                return;
+              }
+              alert(message || 'Error editing bill. Please try again.');
             });
         });
       }
@@ -1173,7 +1277,7 @@
 
         if (filtered.length === 0) {
           tableHead.innerHTML = '';
-          const colspan = isPaid ? 6 : 8; // Paid: 6 (incl. Contractor Bill No); Unpaid: 8
+          const colspan = isPaid ? 7 : 8; // Paid: 7 (incl. Contractor Bill No + Edit); Unpaid: 8
           tableBody.innerHTML =
             `<tr><td colspan="${colspan}">No ` +
             (isPaid ? 'paid' : 'unpaid') +
@@ -1189,6 +1293,7 @@
               <th>Paid Date</th>
               <th>Total Amount</th>
               <th>Download</th>
+              <th>Edit</th>
               <th>Delete</th>
             </tr>
           `;
@@ -1226,17 +1331,37 @@
           if (isPaid) {
             const cBillNo = bill.contractorBillNo || '';
             const cBillDisplay = cBillNo || '—';
-            tr.innerHTML = `
-              <td>${bill.billNumber}</td>
-              <td style="font-variant-numeric: tabular-nums;">
-                <span class="contractor-bill-no-text">${cBillDisplay}</span>
-                <button
+            const lockInfo = getPaidLockInfo(bill);
+            const lockTitle = lockedTitleText(lockInfo);
+            const openTitle = unlockedTitleText(lockInfo);
+
+            const cBillEditBtn = lockInfo.locked
+              ? ''
+              : `<button
                   type="button"
                   class="bill-edit-contractor-bill-no-btn"
                   data-bill="${bill.billNumber}"
                   title="${cBillNo ? 'Edit contractor bill number' : 'Add contractor bill number'}"
                   style="margin-left:8px;border:none;background:transparent;color:#a5b4fc;cursor:pointer;font-size:14px;padding:2px 4px;vertical-align:middle;"
-                >✏️</button>
+                >✏️</button>`;
+
+            const editCell = lockInfo.locked
+              ? `<span title="${lockTitle}" style="color:#9ca3af;font-size:12px;white-space:nowrap;">🔒 Locked</span>`
+              : `<button class="secondary-btn primary-btn--sm bill-edit-btn" data-bill="${bill.billNumber}" title="${openTitle}">
+                  Edit
+                </button>`;
+
+            const deleteCell = lockInfo.locked
+              ? `<span title="${lockTitle}" style="color:#9ca3af;font-size:12px;">🔒</span>`
+              : `<button class="secondary-btn primary-btn--sm bill-delete-btn" data-bill="${bill.billNumber}" title="Delete Bill">
+                  🗑️
+                </button>`;
+
+            tr.innerHTML = `
+              <td>${bill.billNumber}</td>
+              <td style="font-variant-numeric: tabular-nums;">
+                <span class="contractor-bill-no-text">${cBillDisplay}</span>
+                ${cBillEditBtn}
               </td>
               <td>${formatDate(bill.paymentDate)}</td>
               <td title="${roomRent > 0 ? `Bill: ${billAmount.toFixed(2)}, Room Rent: ${roomRent.toFixed(2)}` : ''}">${totalDisplay}</td>
@@ -1245,11 +1370,8 @@
                   Download
                 </button>
               </td>
-              <td>
-                <button class="secondary-btn primary-btn--sm bill-delete-btn" data-bill="${bill.billNumber}" title="Delete Bill">
-                  🗑️
-                </button>
-              </td>
+              <td>${editCell}</td>
+              <td>${deleteCell}</td>
             `;
           } else {
             tr.innerHTML = `
@@ -1285,7 +1407,11 @@
 
         tableInfo.textContent = `Showing ${filtered.length} ${
           isPaid ? 'paid' : 'unpaid'
-        } bill(s). Grand total: ${grandTotal.toFixed(2)}`;
+        } bill(s). Grand total: ${grandTotal.toFixed(2)}` + (
+          isPaid
+            ? ` — paid bills can be edited or deleted for ${PAID_EDIT_WINDOW_MONTHS} months after the payment date, then they lock.`
+            : ''
+        );
 
         // Unpaid only: show select/unselect row when there are rows
         const selectAllRow = document.getElementById('unpaidSelectAllRow');
@@ -1689,7 +1815,9 @@
         const editCBillBtn = target.closest('.bill-edit-contractor-bill-no-btn');
         if (editCBillBtn) {
           const billNumber = editCBillBtn.getAttribute('data-bill');
-          if (billNumber) await editPaidContractorBillNo(billNumber);
+          if (billNumber && ensureBillUnlocked(billNumber)) {
+            await editPaidContractorBillNo(billNumber);
+          }
           return;
         }
 
@@ -1701,6 +1829,7 @@
         } else if (target.classList.contains('bill-edit-btn')) {
           const billNumber = target.getAttribute('data-bill');
           if (billNumber) {
+            if (!ensureBillUnlocked(billNumber)) return;
             try {
               const bill = await billsAPI.getByBillNumber(billNumber);
               openBillEditor(bill);
@@ -1735,6 +1864,7 @@
         } else if (target.classList.contains('bill-delete-btn')) {
           const billNumber = target.getAttribute('data-bill');
           if (billNumber) {
+            if (!ensureBillUnlocked(billNumber)) return;
             if (confirm(`Are you sure you want to delete bill ${billNumber}? This will restore pending quantities and update completed quantities in the database. This action cannot be undone.`)) {
               await deleteBill(billNumber);
             }
