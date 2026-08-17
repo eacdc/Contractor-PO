@@ -149,9 +149,32 @@ check('only the matched row is removed, other opsId survives',
   runDeleteWd([{ opsId: 'A', opsDoneQty: 8000, savedInBill: 'Yes' },
                { opsId: 'B', opsDoneQty: 100, savedInBill: 'Yes' }], 'A', 8000), ['B:100:Yes']);
 
-check('two billed rows same opsId -> only one removed',
+check('first row covers the bill -> the second is left alone',
   runDeleteWd([{ opsId: 'A', opsDoneQty: 8000, savedInBill: 'Yes' },
                { opsId: 'A', opsDoneQty: 2000, savedInBill: 'Yes' }], 'A', 8000), ['A:2000:Yes']);
+
+// Two bills for the same contractor and operation: work saved after the first
+// bill is submitted becomes a second billed row, because a save only folds into
+// an unbilled row. Reversing out of the first row alone floored it at 0 and left
+// the rest of the bill's quantity recorded, which is what put pending and
+// Contractor_WD out of step on the reported job.
+check('bill larger than the first row -> the rest comes off the second',
+  runDeleteWd([{ opsId: 'A', opsDoneQty: 16000, savedInBill: 'Yes' },
+               { opsId: 'A', opsDoneQty: 20000, savedInBill: 'Yes' }], 'A', 20000), ['A:16000:Yes']);
+
+check('bill equal to both rows -> both removed',
+  runDeleteWd([{ opsId: 'A', opsDoneQty: 16000, savedInBill: 'Yes' },
+               { opsId: 'A', opsDoneQty: 20000, savedInBill: 'Yes' }], 'A', 36000), []);
+
+check('bill larger than both rows -> both removed, nothing goes negative',
+  runDeleteWd([{ opsId: 'A', opsDoneQty: 16000, savedInBill: 'Yes' },
+               { opsId: 'A', opsDoneQty: 4000, savedInBill: 'Yes' }], 'A', 36000), []);
+
+check('spreading still never touches an unsaved row',
+  runDeleteWd([{ opsId: 'A', opsDoneQty: 16000, savedInBill: 'Yes' },
+               { opsId: 'A', opsDoneQty: 5000, savedInBill: 'No' },
+               { opsId: 'A', opsDoneQty: 20000, savedInBill: 'Yes' }], 'A', 20000),
+  ['A:5000:No', 'A:16000:Yes']);
 
 // ===========================================================================
 // 3. EDIT-QTY — pending delta with the packaging allowance (real block)
@@ -273,6 +296,25 @@ check('matched by opId even when the name differs',
             { opId: 'A', opsName: 'New Name', valuePerBook: 2, deltaQty: 1000 }),
   ['A:Old Name:6000:Yes']);
 
+// Same two-billed-row case as the delete reversal.
+check('decrease larger than the first row spreads onto the second',
+  runEditWd([{ opsId: 'A', opsName: 'Op', valuePerBook: 2, opsDoneQty: 16000, savedInBill: 'Yes' },
+             { opsId: 'A', opsName: 'Op', valuePerBook: 2, opsDoneQty: 20000, savedInBill: 'Yes' }],
+            { opId: 'A', opsName: 'Op', valuePerBook: 2, deltaQty: -20000 }),
+  ['A:Op:16000:Yes']);
+
+check('decrease larger than every billed row -> all removed, unsaved row survives',
+  runEditWd([{ opsId: 'A', opsName: 'Op', valuePerBook: 2, opsDoneQty: 16000, savedInBill: 'Yes' },
+             { opsId: 'A', opsName: 'Op', valuePerBook: 2, opsDoneQty: 700, savedInBill: 'No' },
+             { opsId: 'A', opsName: 'Op', valuePerBook: 2, opsDoneQty: 4000, savedInBill: 'Yes' }],
+            { opId: 'A', opsName: 'Op', valuePerBook: 2, deltaQty: -36000 }),
+  ['A:Op:700:No']);
+
+check('decrease with no billed row at all -> nothing changes',
+  runEditWd([{ opsId: 'A', opsName: 'Op', valuePerBook: 2, opsDoneQty: 700, savedInBill: 'No' }],
+            { opId: 'A', opsName: 'Op', valuePerBook: 2, deltaQty: -5000 }),
+  ['A:Op:700:No']);
+
 // ===========================================================================
 // 5. UNSAVE — pending after deleting a saved-but-not-billed row (real block)
 // ===========================================================================
@@ -384,6 +426,42 @@ check('mixed ops: one has pending, one has allowance, one is spent',
     { opId: 'B', totalOpsQty: 100000, pendingOpsQty: 0 },
     { opId: 'C', totalOpsQty: 100000, pendingOpsQty: 0 }
   ] }, { A: 99500, B: 100000, C: 105000 }), ['A', 'B']);
+
+// ===========================================================================
+// 7. WORK SAVE — pending after recording new work (real block)
+// ===========================================================================
+// The fourth write path. It used to subtract the quantity from whatever pending
+// held, which keeps any drift already there; the cap it enforces and the pending
+// endpoint both measure against recorded work, so pending is taken from that.
+const savePendingSrc = extract(
+  'const totalOpsQtyForSave = Number(jobOp.totalOpsQty || 0);',
+  'jobOp.pendingOpsQty = Math.max(0, Math.min(totalOpsQtyForSave, totalOpsQtyForSave - recordedAfterSave));',
+  'save pending');
+
+const runSavePending = (totalOpsQty, alreadyRecorded, qtyToDeduct, pendingOpsQty = 0) => {
+  const jobOp = { opId: 'A', totalOpsQty, pendingOpsQty };
+  const fn = new Function('jobOp', 'alreadyRecorded', 'qtyToDeduct',
+    savePendingSrc + '\n return jobOp.pendingOpsQty;');
+  return fn(jobOp, alreadyRecorded, qtyToDeduct);
+};
+
+console.log('\n7) WORK SAVE  ->  pending from recorded work');
+console.log('   (real block from routes.js)\n');
+
+check('first save on a fresh operation',
+  runSavePending(10000, 0, 4000, 10000), 6000);
+
+check('second save adds to what is already recorded',
+  runSavePending(10000, 4000, 3000, 6000), 3000);
+
+check('pending had drifted high -> the save corrects it',
+  runSavePending(120000, 36000, 4000, 100000), 80000);
+
+check('packaging save past the total -> pending clamps at 0',
+  runSavePending(10000, 10000, 500, 0), 0);
+
+check('exactly finishing the operation -> pending 0',
+  runSavePending(10000, 6000, 4000, 4000), 0);
 
 console.log(`\n${'='.repeat(70)}`);
 console.log(`  ${pass} passed, ${fail} failed`);
