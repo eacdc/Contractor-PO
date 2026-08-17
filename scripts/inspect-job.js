@@ -106,7 +106,7 @@ wdRows.forEach(r => {
 
 // ----------------------------------------------------------------- Bills ----
 const bills = d.getCollection('Bills').find({ 'jobs.jobNumber': JOB_NUMBER }).toArray();
-const liveByOpKey = {}, deadByOpKey = {}, billsByOpKey = {};
+const liveByOpKey = {}, deadByOpKey = {}, liveLinesByOpKey = {};
 bills.forEach(b => {
   const dead = Number(b.isDeleted || 0) === 1;
   (b.jobs || []).forEach(j => {
@@ -117,11 +117,26 @@ bills.forEach(b => {
       if (dead) { deadByOpKey[k] = (deadByOpKey[k] || 0) + q; }
       else {
         liveByOpKey[k] = (liveByOpKey[k] || 0) + q;
-        if (!billsByOpKey[k]) billsByOpKey[k] = [];
-        billsByOpKey[k].push(norm(b.billNumber) + (norm(b.paymentStatus) === 'Yes' ? '(PAID)' : '') + ' ' + dayOnly(b.createdAt));
+        if (!liveLinesByOpKey[k]) liveLinesByOpKey[k] = [];
+        liveLinesByOpKey[k].push({
+          billNumber: norm(b.billNumber),
+          paid: norm(b.paymentStatus) === 'Yes',
+          date: dayOnly(b.createdAt),
+          contractor: norm(b.contractorName),
+          qty: q
+        });
       }
     });
   });
+});
+
+// Unsaved qty per operation, across every contractor — several contractors can
+// share one operation, so the room left has to be judged on the total.
+const unsavedByOpKey = {};
+wdRows.forEach(r => {
+  if (r.isAdhoc || r.savedInBill !== 'No') return;
+  const k = r.opsName + '|' + r.rate;
+  unsavedByOpKey[k] = (unsavedByOpKey[k] || 0) + r.qty;
 });
 
 // -------------------------------------------- 1. Operations Pending panel ---
@@ -212,26 +227,54 @@ if (unsaved.length === 0) {
     const k = r.opsName + '|' + r.rate;
     const live = liveByOpKey[k] || 0;
     const dead = deadByOpKey[k] || 0;
+    const lines = liveLinesByOpKey[k] || [];
     const ageDays = r.savedOn
       ? Math.max(0, Math.round((today - new Date(new Date(r.savedOn).setHours(0, 0, 0, 0))) / 86400000))
       : null;
 
+    // The operation's own total, not the job's, plus the packaging allowance.
+    const jobOp = master ? (master.ops || []).find(o => opName[norm(o.opId)] === r.opsName) : null;
+    const opTotal = jobOp ? Number(jobOp.totalOpsQty || 0) : null;
+    const room = opTotal != null ? r2(opTotal + allowance - live) : null;
+    const unsavedForOp = unsavedByOpKey[k] || 0;
+
+    // A live bill for the same contractor and the same quantity is the shape a
+    // duplicate takes. The same operation merely appearing on a live bill is
+    // not: two contractors routinely split one operation on a job.
+    const twin = lines.find(l => l.contractor === r.contractor && Math.abs(l.qty - r.qty) <= TOL);
+
     say('  [' + (i + 1) + ']  ' + r.opsName + '   qty=' + r.qty + '  rate=' + r.rate +
         '  value=' + r2(r.qty * r.rate));
-    say('       contractor : ' + r.contractor + '  (' + r.contractorId + ')');
+    say('       contractor  : ' + r.contractor + '  (' + r.contractorId + ')');
     say('       save hoyeche: ' + dstr(r.savedOn) + (ageDays != null ? '   (' + ageDays + ' din age)' : ''));
-    say('       ei op e live bill e ache: ' + live + (dead ? ',  deleted bill e: ' + dead : ''));
-    if (live > 0) say('       live bill: ' + (billsByOpKey[k] || []).join(', '));
+    if (opTotal != null) {
+      say('       ei op er hisheb: total ' + opTotal + (allowance ? ' + allowance ' + allowance : '') +
+          ',  live bill e ' + live + ',  tai jaega baki ' + room);
+      say('       ekhono bill hoyni (sob contractor mile): ' + unsavedForOp);
+    }
+    if (lines.length) {
+      say('       live bill line gulo:');
+      lines.forEach(l => say('         bill ' + l.billNumber + (l.paid ? '(PAID)' : '') + '  ' + l.date +
+                             '  ' + l.contractor + '  qty=' + l.qty));
+    }
+    if (dead) say('       deleted bill e: ' + dead);
 
-    if (live > 0) {
-      say('       >>> SANDEHOJONOK: ei op ekta LIVE BILL eo ache. Ekei kaj duibar bill hote pare.');
-      say('           Amake janan.');
+    if (twin) {
+      say('       >>> SANDEHOJONOK: bill ' + twin.billNumber + ' e ekei contractor er ekei qty (' +
+          twin.qty + ') ache.');
+      say('           Ekei kaj duibar bill hote pare — amake janan.');
+    } else if (room != null && unsavedForOp > room + TOL) {
+      say('       >>> SANDEHOJONOK: ekhono bill na hoya kaj (' + unsavedForOp + ') jaegar (' + room +
+          ') cheye beshi.');
+      say('           Submit korle OVER-BILLING hobe — amake janan.');
     } else if (ageDays != null && ageDays > 0) {
       say('       >>> PROTTYASHITO: keu ' + ageDays + ' din age SAVE korechilo, SUBMIT kore ni.');
       say('           Bill Details e asa thik ache — eta bill korar opekkhay ache.');
       say('           Deploy hoye gele ei row holud highlight + "Saved On" tarikh + banner dekhabe.');
     } else {
-      say('       >>> AJKEI save hoyeche. Keu ajke kaj record korechhe kintu submit kore ni.');
+      say('       >>> PROTTYASHITO: AJKEI save hoyeche, ekhono submit kora hoy ni.');
+      say('           Jaega ache, tai kono somossa nei. Onno kono contractor ekei op e kaj');
+      say('           korle tar bill alada — seta duplicate noy.');
     }
     say('');
   });
