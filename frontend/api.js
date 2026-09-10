@@ -1,12 +1,17 @@
 // API Configuration
-const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+// file:// (double-click / start index.html) has an empty hostname — treat as local.
+function isLocalFrontend() {
+  const protocol = (typeof window !== 'undefined' && window.location.protocol) || '';
+  const host = String((typeof window !== 'undefined' && window.location.hostname) || '').toLowerCase();
+  return protocol === 'file:' || !host || host === 'localhost' || host === '127.0.0.1' || host === '::1';
+}
+
+const API_BASE_URL = isLocalFrontend()
   ? 'http://localhost:3001/api'
   : 'https://cdcapi.onrender.com/api';
 
 // Main backend base (non contractor-po prefixed routes in backend/src/routes.js)
-const MAIN_API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
-  ? 'http://localhost:3001/api'
-  : 'https://cdcapi.onrender.com/api';
+const MAIN_API_BASE_URL = API_BASE_URL;
 
 // Helper function for API calls
 async function apiCall(endpoint, options = {}) {
@@ -242,12 +247,9 @@ export const billsAPI = {
       method: 'PATCH',
       body: { contractorBillNumber, updateShared },
     }),
-  // The backend refuses to delete a paid bill unless force is set, so that
-  // reversing work someone has already been paid for takes a second decision.
-  delete: (billNumber, force = false) => apiCall(
-    `/bills/${billNumber}${force ? '?force=true' : ''}`,
-    { method: 'DELETE' }
-  )
+  delete: (billNumber) => apiCall(`/bills/${billNumber}`, {
+    method: 'DELETE'
+  })
 };
 
 // Bill editing API (qtyCompleted only)

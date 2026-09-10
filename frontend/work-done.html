@@ -11,55 +11,6 @@
         cursor: not-allowed;
         opacity: 0.6;
       }
-
-      /* Bill Details rows that were saved on an earlier day and never submitted.
-         Without this they look identical to work just entered, which is how
-         old saves get mistaken for quantities appearing on their own. */
-      #billTableBody tr.bill-row--carried-over {
-        background-color: rgba(250, 204, 21, 0.14);
-      }
-
-      #billTableBody tr.bill-row--carried-over td:first-child {
-        border-left: 3px solid #eab308;
-      }
-
-      .bill-row-age {
-        display: inline-block;
-        margin-left: 6px;
-        padding: 1px 6px;
-        border-radius: 10px;
-        background-color: #eab308;
-        color: #1f2937;
-        font-size: 11px;
-        font-weight: 600;
-        white-space: nowrap;
-      }
-
-      /* A Packaging operation whose own quantity is fully recorded still has the
-         allowance to work with. Pending reads 0 there, so the row needs to say
-         what is left or it reads as a row that should not be on the screen. */
-      .allowance-note {
-        display: inline-block;
-        margin-left: 6px;
-        padding: 1px 6px;
-        border-radius: 10px;
-        background-color: #0ea5e9;
-        color: #ffffff;
-        font-size: 11px;
-        font-weight: 600;
-        white-space: nowrap;
-      }
-
-      .carried-over-banner {
-        margin: 0 0 12px;
-        padding: 10px 14px;
-        border: 1px solid #eab308;
-        border-left-width: 4px;
-        border-radius: 6px;
-        background-color: rgba(250, 204, 21, 0.14);
-        font-size: 14px;
-        line-height: 1.5;
-      }
     </style>
   </head>
   <body>
@@ -172,7 +123,6 @@
             <h3>Bill Details</h3>
           </header>
           <div class="panel-body">
-            <p class="carried-over-banner" id="carriedOverBanner" style="display: none;"></p>
             <div class="table-wrapper">
               <table class="data-table" id="billTable">
                 <thead>
@@ -183,7 +133,6 @@
                     <th>Rate / Book</th>
                     <th>Qty Completed</th>
                     <th>Total Value</th>
-                    <th>Saved On</th>
                     <th>Action</th>
                   </tr>
                   <tr>
@@ -193,7 +142,6 @@
                     <th><input type="text" id="billFilterRate" placeholder="Filter rate" style="width: 100%;" /></th>
                     <th><input type="text" id="billFilterQtyCompleted" placeholder="Filter qty completed" style="width: 100%;" /></th>
                     <th><input type="text" id="billFilterTotalValue" placeholder="Filter total value" style="width: 100%;" /></th>
-                    <th><input type="text" id="billFilterSavedOn" placeholder="Filter saved on" style="width: 100%;" /></th>
                     <th></th>
                   </tr>
                 </thead>
@@ -282,7 +230,6 @@
       const billFilterRate = document.getElementById("billFilterRate");
       const billFilterQtyCompleted = document.getElementById("billFilterQtyCompleted");
       const billFilterTotalValue = document.getElementById("billFilterTotalValue");
-      const billFilterSavedOn = document.getElementById("billFilterSavedOn");
       const homeBtn = document.querySelector(".home-btn");
       const adhocPendingPanel = document.getElementById("adhocPendingPanel");
       const adhocOrderSelect = document.getElementById("adhocOrderSelect");
@@ -319,7 +266,6 @@
         rate: '',
         qtyCompleted: '',
         totalValue: '',
-        savedOn: '',
       };
       // Packaging segment: per operation max "qty to add" = totalQty*0.05 + that op's pending. Key: jobNumber, value: totalQty or null.
       let jobPackagingTotalQtyMap = {};
@@ -348,121 +294,8 @@
           isAdhoc,
           adhocOrderId,
           adhocLabel,
-          completionDate: item.completionDate || null,
           fromContractorWD: true
         };
-      }
-
-      // How much can still be added to one operation.
-      // Two limits apply and the lower one wins:
-      //   pending + allowance                    — what is left to do
-      //   totalOpsQty + allowance - recorded     — what the job can still hold
-      // They agree while pendingOpsQty is accurate. Where it has drifted the
-      // second is the real limit, and it is the one the server enforces, so
-      // using it here stops the screen accepting a quantity that would then be
-      // rejected on save.
-      function computeMaxAdd({ pending, totalOpsQty, recordedOpsQty, packagingTotalQty }) {
-        const allowance = packagingTotalQty != null ? packagingTotalQty * 0.05 : 0;
-        const byPending = (Number(pending) || 0) + allowance;
-        if (totalOpsQty == null || recordedOpsQty == null) return Math.round(byPending);
-        const byRecorded = (Number(totalOpsQty) || 0) + allowance - (Number(recordedOpsQty) || 0);
-        return Math.max(0, Math.round(Math.min(byPending, byRecorded)));
-      }
-
-      // Pending for an operation, read off the work recorded against it:
-      // whatever the job holds minus what has been recorded, never below 0.
-      // This is the rule the server applies, and unlike "old pending ± qty" it
-      // stays right when an operation has overshot its total — a Packaging
-      // operation may be saved past the job quantity by the 5% allowance, and
-      // pending floors at 0 while it is.
-      function pendingFromRecorded(totalOpsQty, recordedOpsQty) {
-        const total = Number(totalOpsQty) || 0;
-        const recorded = Math.max(0, Number(recordedOpsQty) || 0);
-        return Math.min(total, Math.max(0, total - recorded));
-      }
-
-      // A Packaging operation can be worked past the job's own quantity by the
-      // allowance, so it stays on the screen with pending at 0. Nothing about
-      // "Pending Qty 0" explains that, hence the badge — it only appears while
-      // pending is 0 and there is allowance left to enter.
-      function allowanceNote(op, inputMax, pendingShown) {
-        if (Number(pendingShown) > 0) return '';
-        const room = Math.round(Number(op.allowanceRoom) || 0);
-        const left = Math.min(room, Math.round(Number(inputMax) || 0));
-        return left > 0 ? `<span class="allowance-note">allowance left: ${left}</span>` : '';
-      }
-
-      // Recalculate an input's cap from the data attributes carried on it, so
-      // the limit stays right after a save changes pending and recorded.
-      function maxAddForInput(input, pendingOverride) {
-        const row = input.closest('tr');
-        const pendingCell = row?.querySelector('.pending-cell');
-        const pending = pendingOverride != null
-          ? pendingOverride
-          : (parseFloat(pendingCell?.textContent || '0') || 0);
-        const jobNum = input.dataset.job || currentJobNumber;
-        const totalOpsQty = input.dataset.totalOpsQty !== undefined
-          ? Number(input.dataset.totalOpsQty) : null;
-        const recordedOpsQty = input.dataset.recordedOpsQty !== undefined
-          ? Number(input.dataset.recordedOpsQty) : null;
-        return computeMaxAdd({
-          pending,
-          totalOpsQty,
-          recordedOpsQty,
-          packagingTotalQty: jobNum ? jobPackagingTotalQtyMap[jobNum] : null
-        });
-      }
-
-      // These rows come straight from Contractor_WD: work someone saved earlier
-      // and never submitted. Anything saved before today is flagged so it is
-      // never mistaken for a quantity entered in this session.
-      function startOfToday() {
-        const d = new Date();
-        d.setHours(0, 0, 0, 0);
-        return d;
-      }
-
-      function formatSavedOn(value) {
-        if (!value) return '';
-        const d = new Date(value);
-        if (isNaN(d.getTime())) return '';
-        return d.toLocaleDateString('en-GB');
-      }
-
-      function daysOld(value) {
-        if (!value) return 0;
-        const d = new Date(value);
-        if (isNaN(d.getTime())) return 0;
-        d.setHours(0, 0, 0, 0);
-        return Math.max(0, Math.round((startOfToday() - d) / 86400000));
-      }
-
-      function isCarriedOver(item) {
-        return daysOld(item && item.completionDate) > 0;
-      }
-
-      function updateCarriedOverBanner() {
-        const banner = document.getElementById('carriedOverBanner');
-        if (!banner) return;
-
-        const old = billData.filter(isCarriedOver);
-        if (old.length === 0) {
-          banner.style.display = 'none';
-          banner.textContent = '';
-          return;
-        }
-
-        const oldestDays = Math.max(...old.map(item => daysOld(item.completionDate)));
-        const totalValue = old.reduce((sum, item) => sum + (Number(item.totalValue) || 0), 0);
-        const refs = [...new Set(old.map(item => (item.isAdhoc ? `Ad-hoc: ${item.adhocLabel || '-'}` : item.jobNumber)))];
-        const refText = refs.slice(0, 4).join(', ') + (refs.length > 4 ? ` +${refs.length - 4} more` : '');
-
-        banner.style.display = 'block';
-        banner.textContent =
-          `⚠ ${old.length} row(s) below were saved earlier (oldest ${oldestDays} day(s) ago) ` +
-          `and have never been submitted — they were loaded automatically, not entered now. ` +
-          `Total ${totalValue.toFixed(2)} across: ${refText}. ` +
-          `Submit them or delete them before adding new work.`;
       }
 
       // Sync Bill Details rows for a job from Contractor_WD unsaved entries (backend is source of truth)
@@ -563,16 +396,7 @@
           updateSubmitButtonState();
           if (billData.length > 0 && billTablePanel) billTablePanel.classList.remove('panel-collapsed');
         } catch (e) {
-          // This used to fail silently, which looked identical to the contractor
-          // simply having no pending work — the rows then appeared only after a
-          // job search, through the per-job call, and the gap was invisible.
           console.error('Error loading all unsaved work for contractor:', e);
-          if (workDoneWarning) {
-            workDoneWarning.style.color = '#f59e0b';
-            workDoneWarning.textContent =
-              `Could not load this contractor's saved-but-unsubmitted work (${e.message || 'request failed'}). ` +
-              `Search a job to load that job's rows, or try again.`;
-          }
         }
       }
 
@@ -594,7 +418,7 @@
         const dateStr = new Date().toLocaleDateString('en-GB').replace(/\//g, '-');
 
         // Build rows
-        const headers = ['Reference', 'Operation', 'Qty/Book', 'Rate/Book', 'Qty Completed', 'Total Value', 'Saved On'];
+        const headers = ['Reference', 'Operation', 'Qty/Book', 'Rate/Book', 'Qty Completed', 'Total Value'];
         const rows = billData
           .filter(item => item.opsName && item.opsName.trim())
           .map(item => {
@@ -605,13 +429,12 @@
               Number(item.qtyBook ?? 0).toFixed(4),
               (Number(item.valuePerBook) || 0).toFixed(8),
               item.qtyCompleted,
-              (Number(item.totalValue) || 0).toFixed(4),
-              formatSavedOn(item.completionDate) || '-'
+              (Number(item.totalValue) || 0).toFixed(4)
             ];
           });
 
         const totalValue = billData.reduce((s, item) => s + (Number(item.totalValue) || 0), 0);
-        rows.push(['', '', '', '', 'Total:', totalValue.toFixed(4), '']);
+        rows.push(['', '', '', '', 'Total:', totalValue.toFixed(4)]);
 
         // Build CSV content
         const escape = val => {
@@ -874,20 +697,12 @@
           operations.forEach(op => {
             const cachedReduction = pendingQtyCache[jobNumber]?.[op.opId] || 0;
             const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
-            const recordedSoFar = (Number(op.recordedOpsQty) || 0) + cachedReduction;
-            const inputMax = computeMaxAdd({
-              pending: adjustedPendingQty,
-              totalOpsQty: op.recordedOpsQty !== undefined ? op.totalOpsQty : null,
-              recordedOpsQty: op.recordedOpsQty !== undefined ? recordedSoFar : null,
-              packagingTotalQty
-            });
-            // Only carried when the server actually reported recorded work, so
-            // "not reported" stays distinguishable from "nothing recorded yet".
-            const recordedAttr = op.recordedOpsQty !== undefined
-              ? `data-recorded-ops-qty="${recordedSoFar}"` : '';
+            const inputMax = packagingTotalQty != null
+              ? Math.round(packagingTotalQty * 0.05 + adjustedPendingQty)
+              : adjustedPendingQty;
             const row = document.createElement("tr");
             row.innerHTML = `
-              <td>${op.opsName || '-'}${allowanceNote(op, inputMax, adjustedPendingQty)}</td>
+              <td>${op.opsName || '-'}</td>
               <td>${op.totalOpsQty || 0}</td>
               <td class="pending-cell">${adjustedPendingQty}</td>
               <td>
@@ -899,8 +714,6 @@
                   step="1"
                   data-op-id="${op.opId}"
                   data-job="${jobNumber}"
-                  data-total-ops-qty="${op.totalOpsQty || 0}"
-                  ${recordedAttr}
                   data-value-per-book="${op.valuePerBook || 0}"
                 />
               </td>
@@ -958,9 +771,12 @@
             const row = e.target.closest("tr");
             const pendingCell = row?.querySelector(".pending-cell");
             if (pendingCell) {
+              const pending = parseFloat(pendingCell.textContent || "0") || 0;
               let value = parseFloat(e.target.value || "0");
               const packagingTotalQty = jobPackagingTotalQtyMap[jobNumber];
-              const maxForRow = maxAddForInput(e.target);
+              const maxForRow = packagingTotalQty != null
+                ? packagingTotalQty * 0.05 + pending
+                : pending;
               if (value > maxForRow) {
                 e.target.value = String(Math.round(maxForRow));
                 if (workDoneWarning) {
@@ -1489,20 +1305,17 @@
                     };
                   }
                   
-                  // Packaging segment: per-op max = totalQty*0.05 + that op's pending.
-                  // Same as single-job mode: use what the pending response
-                  // reports so the client cap matches the server's.
-                  if (result.segmentName !== undefined) {
-                    jobPackagingTotalQtyMap[jn] =
-                      (result.segmentName || '').trim() === 'Packaging' ? (Number(result.totalQty) || 0) : null;
-                  } else {
-                    try {
-                      const jobDetails = await jobsAPI.getJobDetails(jn);
-                      const seg = (jobDetails.segmentName || '').trim();
-                      jobPackagingTotalQtyMap[jn] = seg === 'Packaging' ? (Number(jobDetails.qty) || 0) : null;
-                    } catch (_) {
+                  // Packaging segment: per-op max = totalQty*0.05 + that op's pending
+                  try {
+                    const jobDetails = await jobsAPI.getJobDetails(jn);
+                    const seg = (jobDetails.segmentName || '').trim();
+                    if (seg === 'Packaging') {
+                      jobPackagingTotalQtyMap[jn] = Number(jobDetails.qty) || 0;
+                    } else {
                       jobPackagingTotalQtyMap[jn] = null;
                     }
+                  } catch (_) {
+                    jobPackagingTotalQtyMap[jn] = null;
                   }
                   
                   seriesJobs.push({
@@ -1561,21 +1374,17 @@
                 };
               }
 
-              // Packaging segment: per-op max = totalQty*0.05 + that op's pending.
-              // Prefer the segment the pending response reports, since the
-              // server enforces its cap from that same value; fall back to the
-              // job details lookup for backends that do not send it yet.
-              if (result.segmentName !== undefined) {
-                jobPackagingTotalQtyMap[jobNumber] =
-                  (result.segmentName || '').trim() === 'Packaging' ? (Number(result.totalQty) || 0) : null;
-              } else {
-                try {
-                  const jobDetails = await jobsAPI.getJobDetails(jobNumber);
-                  const seg = (jobDetails.segmentName || '').trim();
-                  jobPackagingTotalQtyMap[jobNumber] = seg === 'Packaging' ? (Number(jobDetails.qty) || 0) : null;
-                } catch (_) {
+              // Packaging segment: per-op max = totalQty*0.05 + that op's pending
+              try {
+                const jobDetails = await jobsAPI.getJobDetails(jobNumber);
+                const seg = (jobDetails.segmentName || '').trim();
+                if (seg === 'Packaging') {
+                  jobPackagingTotalQtyMap[jobNumber] = Number(jobDetails.qty) || 0;
+                } else {
                   jobPackagingTotalQtyMap[jobNumber] = null;
                 }
+              } catch (_) {
+                jobPackagingTotalQtyMap[jobNumber] = null;
               }
 
               // Populate table
@@ -1588,20 +1397,12 @@
                   result.operations.forEach(op => {
                     const cachedReduction = pendingQtyCache[jobNumber]?.[op.opId] || 0;
                     const adjustedPendingQty = Math.max(0, (op.pendingOpsQty || 0) - cachedReduction);
-                    const recordedSoFar = (Number(op.recordedOpsQty) || 0) + cachedReduction;
-                    const inputMax = computeMaxAdd({
-                      pending: adjustedPendingQty,
-                      totalOpsQty: op.recordedOpsQty !== undefined ? op.totalOpsQty : null,
-                      recordedOpsQty: op.recordedOpsQty !== undefined ? recordedSoFar : null,
-                      packagingTotalQty
-                    });
-                    // As in the per-job panel: absent when the server did not
-                    // report recorded work for this operation.
-                    const recordedAttr = op.recordedOpsQty !== undefined
-                      ? `data-recorded-ops-qty="${recordedSoFar}"` : '';
+                    const inputMax = packagingTotalQty != null
+                      ? Math.round(packagingTotalQty * 0.05 + adjustedPendingQty)
+                      : adjustedPendingQty;
                     const row = document.createElement("tr");
                     row.innerHTML = `
-                      <td>${op.opsName || '-'}${allowanceNote(op, inputMax, adjustedPendingQty)}</td>
+                      <td>${op.opsName || '-'}</td>
                       <td>${op.totalOpsQty || 0}</td>
                       <td class="pending-cell">${adjustedPendingQty}</td>
                       <td>
@@ -1613,8 +1414,6 @@
                           step="1"
                           data-op-id="${op.opId}"
                           data-job="${jobNumber}"
-                          data-total-ops-qty="${op.totalOpsQty || 0}"
-                          ${recordedAttr}
                           data-value-per-book="${op.valuePerBook || 0}"
                         />
                       </td>
@@ -1655,10 +1454,13 @@
           const pendingCell = row?.querySelector(".pending-cell");
           if (!pendingCell) return;
 
+          const pending = parseFloat(pendingCell.textContent || "0") || 0;
           let value = parseFloat(input.value || "0");
           const jobNum = input.dataset.job || currentJobNumber;
           const packagingTotalQty = jobNum ? jobPackagingTotalQtyMap[jobNum] : null;
-          const maxForRow = maxAddForInput(input);
+          const maxForRow = packagingTotalQty != null
+            ? packagingTotalQty * 0.05 + pending
+            : pending;
 
           if (value > maxForRow) {
             input.value = String(Math.round(maxForRow));
@@ -1746,10 +1548,7 @@
                 if (pendingCell) {
                   const newPending = Math.max(0, parseFloat(pendingCell.textContent || "0") - qtyAdded);
                   pendingCell.textContent = newPending;
-                  if (input.dataset.recordedOpsQty !== undefined) {
-                    input.dataset.recordedOpsQty = String((Number(input.dataset.recordedOpsQty) || 0) + qtyAdded);
-                  }
-                  input.max = maxAddForInput(input, newPending);
+                  input.max = newPending;
                 }
               }
               input.value = "";
@@ -1944,10 +1743,7 @@
                     if (pendingCell) {
                       const newPending = Math.max(0, parseFloat(pendingCell.textContent || "0") - qtyAdded);
                       pendingCell.textContent = newPending;
-                      if (input.dataset.recordedOpsQty !== undefined) {
-                        input.dataset.recordedOpsQty = String((Number(input.dataset.recordedOpsQty) || 0) + qtyAdded);
-                      }
-                      input.max = maxAddForInput(input, newPending);
+                      input.max = newPending;
                     }
                   }
                   input.value = "";
@@ -2001,7 +1797,6 @@
           const rateText = (Number(item.valuePerBook) || 0).toFixed(8);
           const qtyCompletedText = String(item.qtyCompleted ?? '');
           const totalValueText = (Number(item.totalValue) || 0).toFixed(4);
-          const savedOnText = formatSavedOn(item.completionDate);
 
           const matches =
             containsFilterValue(referenceText, billFilterState.reference) &&
@@ -2009,8 +1804,7 @@
             containsFilterValue(qtyBookText, billFilterState.qtyBook) &&
             containsFilterValue(rateText, billFilterState.rate) &&
             containsFilterValue(qtyCompletedText, billFilterState.qtyCompleted) &&
-            containsFilterValue(totalValueText, billFilterState.totalValue) &&
-            containsFilterValue(savedOnText, billFilterState.savedOn);
+            containsFilterValue(totalValueText, billFilterState.totalValue);
 
           if (matches) entries.push({ item, index });
         });
@@ -2036,15 +1830,6 @@
             const row = document.createElement("tr");
             row.setAttribute('data-bill-index', index);
             const referenceText = item.isAdhoc ? `Ad-hoc: ${item.adhocLabel || '-'}` : item.jobNumber;
-            const savedOn = formatSavedOn(item.completionDate);
-            const age = daysOld(item.completionDate);
-            if (age > 0) {
-              row.classList.add('bill-row--carried-over');
-              row.title = `Saved ${age} day(s) ago and not yet submitted — loaded automatically, not entered now.`;
-            }
-            const savedOnCell = savedOn
-              ? `${savedOn}${age > 0 ? `<span class="bill-row-age">${age}d old</span>` : ''}`
-              : '-';
             row.innerHTML = `
               <td>${referenceText}</td>
               <td>${item.opsName}</td>
@@ -2052,7 +1837,6 @@
               <td>${(Number(item.valuePerBook) || 0).toFixed(8)}</td>
               <td>${item.qtyCompleted}</td>
               <td>${totalValue.toFixed(4)}</td>
-              <td>${savedOnCell}</td>
               <td>
                 <button class="secondary-btn primary-btn--sm" type="button" data-delete-index="${index}" style="background-color: #ef4444; color: white; border: 1px solid #dc2626; padding: 7px 16px; cursor: pointer;">
                   Delete
@@ -2061,24 +1845,21 @@
             `;
             billTableBody.appendChild(row);
           });
-
+          
           // Update footer with total
           if (billTableFooter) {
             billTableFooter.innerHTML = `
               <tr>
                 <td colspan="6" style="text-align: right; font-weight: bold;">Total:</td>
                 <td style="font-weight: bold;">${totalValueSum.toFixed(4)}</td>
-                <td></td>
               </tr>
             `;
           }
         }
-
-        updateCarriedOverBanner();
-
+        
         // Update Submit button state
         updateSubmitButtonState();
-
+        
         // Update "Pull in Series" checkbox state after refreshing bill table
         updatePullInSeriesCheckboxState();
       }
@@ -2096,77 +1877,57 @@
         // Remove from billData immediately so UI reacts fast
         billData.splice(index, 1);
 
-        // Move the locally displayed pending qty by `delta`. Called with
-        // +qtyCompleted when the row is dropped and with -qtyCompleted to undo
-        // that if the server-side reversal turns out to have failed.
-        const shiftLocalPending = (delta) => {
-          if (!item.isAdhoc && jobNumber) {
-            try {
-              const matchingInputs = document.querySelectorAll(
-                `.work-qty-input[data-op-id="${opId}"][data-job="${jobNumber}"]`
-              );
-              matchingInputs.forEach(input => {
-                const row = input.closest('tr');
-                if (row) {
-                  const pendingCell = row.querySelector('.pending-cell');
-                  if (pendingCell) {
-                    // Where recorded work is known, pending is derived from it,
-                    // the same way the server recomputes it. Adding the deleted
-                    // quantity straight back overstates pending whenever the
-                    // operation had overshot its total: pending had already
-                    // floored at 0, so an operation with 100000 left, saved at
-                    // 106000 under the Packaging allowance, came back as 106000.
-                    let restored;
-                    if (input.dataset.recordedOpsQty !== undefined) {
-                      const recordedAfter =
-                        Math.max(0, (Number(input.dataset.recordedOpsQty) || 0) - delta);
-                      input.dataset.recordedOpsQty = String(recordedAfter);
-                      restored = pendingFromRecorded(input.dataset.totalOpsQty, recordedAfter);
-                    } else {
-                      restored = Math.max(0, (parseFloat(pendingCell.textContent || '0') || 0) + delta);
-                    }
-                    pendingCell.textContent = restored;
-                    input.max = maxAddForInput(input, restored);
-                  }
+        // Restore Operations Pending cell display (+= qtyCompleted)
+        if (!item.isAdhoc && jobNumber) {
+          try {
+            const matchingInputs = document.querySelectorAll(
+              `.work-qty-input[data-op-id="${opId}"][data-job="${jobNumber}"]`
+            );
+            matchingInputs.forEach(input => {
+              const row = input.closest('tr');
+              if (row) {
+                const pendingCell = row.querySelector('.pending-cell');
+                if (pendingCell) {
+                  const restored = (parseFloat(pendingCell.textContent || '0') || 0) + qtyCompleted;
+                  pendingCell.textContent = restored;
+                  input.max = restored;
                 }
-              });
-              // Update cache
-              if (pendingQtyCache[jobNumber]?.[opId]) {
-                pendingQtyCache[jobNumber][opId] = Math.max(0, (pendingQtyCache[jobNumber][opId] || 0) - delta);
-                if (pendingQtyCache[jobNumber][opId] === 0) delete pendingQtyCache[jobNumber][opId];
               }
-            } catch (uiErr) {
-              console.warn('Could not update pending qty display:', uiErr);
+            });
+            // Update cache
+            if (pendingQtyCache[jobNumber]?.[opId]) {
+              pendingQtyCache[jobNumber][opId] = Math.max(0, (pendingQtyCache[jobNumber][opId] || 0) - qtyCompleted);
+              if (pendingQtyCache[jobNumber][opId] === 0) delete pendingQtyCache[jobNumber][opId];
             }
+          } catch (uiErr) {
+            console.warn('Could not update pending qty display:', uiErr);
           }
+        }
 
-          if (item.isAdhoc) {
-            const cacheKey = `${item.adhocOrderId || ''}_${opId}`;
-            adhocPendingQtyCache[cacheKey] = Math.max(0, (adhocPendingQtyCache[cacheKey] || 0) - delta);
-            if (adhocPendingQtyCache[cacheKey] === 0) delete adhocPendingQtyCache[cacheKey];
+        // Restore adhoc pending table
+        if (item.isAdhoc) {
+          // Reduce the cache (for items saved in this session)
+          const cacheKey = `${item.adhocOrderId || ''}_${opId}`;
+          adhocPendingQtyCache[cacheKey] = Math.max(0, (adhocPendingQtyCache[cacheKey] || 0) - qtyCompleted);
+          if (adhocPendingQtyCache[cacheKey] === 0) delete adhocPendingQtyCache[cacheKey];
 
-            // Adjust currentAdhocOperationsData directly so renderAdhocPendingTable
-            // recalculates correctly regardless of whether there was a cache entry.
-            if (currentAdhocOperationsData && item.adhocOrderId &&
-                currentAdhocOrder && String(currentAdhocOrder._id) === String(item.adhocOrderId)) {
-              const opData = currentAdhocOperationsData.find(o => String(o.opId) === String(opId));
-              if (opData) {
-                opData.pendingOpsQty = Math.max(0, Number(opData.pendingOpsQty || 0) + delta);
-              }
-              renderAdhocPendingTable(currentAdhocOperationsData);
+          // Add qty back directly in currentAdhocOperationsData so renderAdhocPendingTable
+          // recalculates correctly regardless of whether there was a cache entry or not.
+          if (currentAdhocOperationsData && item.adhocOrderId &&
+              currentAdhocOrder && String(currentAdhocOrder._id) === String(item.adhocOrderId)) {
+            const opData = currentAdhocOperationsData.find(o => String(o.opId) === String(opId));
+            if (opData) {
+              opData.pendingOpsQty = Number(opData.pendingOpsQty || 0) + qtyCompleted;
             }
+            renderAdhocPendingTable(currentAdhocOperationsData);
           }
-        };
-
-        shiftLocalPending(qtyCompleted);
+        }
 
         refreshBillTable();
         updatePullInSeriesCheckboxState();
         updateSubmitButtonState();
 
-        // Reverse in MongoDB. This has to be awaited and checked: if the row is
-        // dropped from the UI but the reversal never lands, the entry stays in
-        // Contractor_WD and silently reappears in Bill Details on the next search.
+        // Reverse in MongoDB (fire-and-forget, log errors but don't block UI)
         if (currentContractor) {
           const unsaveItem = {
             jobNumber: item.jobNumber || '',
@@ -2177,33 +1938,9 @@
             valuePerBook: item.valuePerBook || 0,
             qtyToRestore: qtyCompleted
           };
-
-          let failureReason = '';
-          try {
-            const result = await workAPI.unsave(currentContractor, [unsaveItem]);
-            // The endpoint answers 200 even when it matched nothing, so check
-            // the per-item outcome rather than trusting the status code.
-            const outcome = result && Array.isArray(result.results) ? result.results[0] : null;
-            if (outcome && !outcome.removed) {
-              failureReason = outcome.error || 'the entry could not be found on the server';
-            }
-          } catch (err) {
+          workAPI.unsave(currentContractor, [unsaveItem]).catch(err => {
             console.error('Failed to reverse saved work in MongoDB:', err);
-            failureReason = err.message || 'the server could not be reached';
-          }
-
-          if (failureReason) {
-            // Put the row and the pending qty back so the page keeps matching
-            // the database instead of quietly drifting away from it.
-            billData.splice(Math.min(index, billData.length), 0, item);
-            shiftLocalPending(-qtyCompleted);
-            refreshBillTable();
-            updateSubmitButtonState();
-            workDoneWarning.style.color = '';
-            workDoneWarning.textContent =
-              `Could not delete "${item.opsName}" — ${failureReason}. The row has been restored; please try again.`;
-            return;
-          }
+          });
         }
       }
 
@@ -2226,7 +1963,6 @@
         [billFilterRate, 'rate'],
         [billFilterQtyCompleted, 'qtyCompleted'],
         [billFilterTotalValue, 'totalValue'],
-        [billFilterSavedOn, 'savedOn'],
       ].forEach(([input, key]) => {
         if (!input) return;
         input.addEventListener('input', () => {
@@ -2285,7 +2021,6 @@
         const addAllJobsBtn = document.getElementById('addAllJobsBtn');
         if (addAllJobsBtn) addAllJobsBtn.remove();
 
-        updateCarriedOverBanner();
         updateSubmitButtonState();
         updatePullInSeriesCheckboxState();
       }
@@ -2357,15 +2092,11 @@
           };
         });
 
-        let savedBill = null;
         try {
-          // 1. Create the bill. The backend also marks the underlying
-          //    Contractor_WD entries as billed as part of this call.
-          savedBill = await billsAPI.create(contractorName, jobs);
+          // 1. Create the bill
+          const savedBill = await billsAPI.create(contractorName, jobs);
 
-          // 2. Mark Contractor_WD entries as savedInBill:'Yes'. This is now a
-          //    safety net rather than the only chance to do it — it normally
-          //    finds nothing left to mark.
+          // 2. Mark Contractor_WD entries as savedInBill:'Yes'
           const markItems = billData.map(item => ({
             jobNumber: item.jobNumber || '',
             isAdhoc: !!item.isAdhoc,
@@ -2426,18 +2157,7 @@
 
           return true;
         } catch (error) {
-          // If the bill itself was created and only the follow-up failed, saying
-          // just "Failed to submit bill" is misleading — the bill exists, and
-          // re-submitting would bill the same work a second time.
-          if (savedBill && savedBill.billNumber) {
-            const msg =
-              `Bill ${savedBill.billNumber} WAS created, but marking the work as billed failed ` +
-              `(${error.message || 'unknown error'}). Do NOT submit again — check bill ${savedBill.billNumber} first.`;
-            alert(msg);
-            workDoneWarning.textContent = msg;
-          } else {
-            workDoneWarning.textContent = error.message || "Failed to submit bill.";
-          }
+          workDoneWarning.textContent = error.message || "Failed to submit bill.";
           return false;
         }
       }
