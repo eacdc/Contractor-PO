@@ -11,7 +11,7 @@ import { readFileSync } from 'fs';
 
 // Path to the backend checkout. Override with ROUTES_JS when it lives elsewhere:
 //   ROUTES_JS="C:/Users/User/Desktop/CDC Site/backend/src/routes.js" node tests/bill-delete-edit.test.mjs
-const ROUTES_JS = process.env.ROUTES_JS || '/workspace/cdc-site/src/routes.js';
+const ROUTES_JS = process.env.ROUTES_JS || '/home/user/cdc-site/src/routes.js';
 const SRC = readFileSync(ROUTES_JS, 'utf8');
 
 function extract(startAnchor, endAnchor, label) {

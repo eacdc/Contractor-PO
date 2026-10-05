@@ -1,17 +1,12 @@
 // API Configuration
-// file:// (double-click / start index.html) has an empty hostname — treat as local.
-function isLocalFrontend() {
-  const protocol = (typeof window !== 'undefined' && window.location.protocol) || '';
-  const host = String((typeof window !== 'undefined' && window.location.hostname) || '').toLowerCase();
-  return protocol === 'file:' || !host || host === 'localhost' || host === '127.0.0.1' || host === '::1';
-}
-
-const API_BASE_URL = isLocalFrontend()
+const API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
   ? 'http://localhost:3001/api'
   : 'https://cdcapi.onrender.com/api';
 
 // Main backend base (non contractor-po prefixed routes in backend/src/routes.js)
-const MAIN_API_BASE_URL = API_BASE_URL;
+const MAIN_API_BASE_URL = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1'
+  ? 'http://localhost:3001/api'
+  : 'https://cdcapi.onrender.com/api';
 
 // Helper function for API calls
 async function apiCall(endpoint, options = {}) {
@@ -33,7 +28,14 @@ async function apiCall(endpoint, options = {}) {
     const data = await response.json();
     
     if (!response.ok) {
-      throw new Error(data.error || 'API request failed');
+      // Routes send structured detail next to the message — overBilling on a
+      // refused bill, rejected on a refused save, results on an unsave. Throwing
+      // the message alone loses the list of rows at fault, which is the part
+      // that says what to do about it.
+      const err = new Error(data.error || 'API request failed');
+      err.status = response.status;
+      err.payload = data;
+      throw err;
     }
     
     return data;
@@ -63,7 +65,14 @@ async function apiCallMain(endpoint, options = {}) {
     const data = await response.json();
     
     if (!response.ok) {
-      throw new Error(data.error || 'API request failed');
+      // Routes send structured detail next to the message — overBilling on a
+      // refused bill, rejected on a refused save, results on an unsave. Throwing
+      // the message alone loses the list of rows at fault, which is the part
+      // that says what to do about it.
+      const err = new Error(data.error || 'API request failed');
+      err.status = response.status;
+      err.payload = data;
+      throw err;
     }
     
     return data;
@@ -247,9 +256,12 @@ export const billsAPI = {
       method: 'PATCH',
       body: { contractorBillNumber, updateShared },
     }),
-  delete: (billNumber) => apiCall(`/bills/${billNumber}`, {
-    method: 'DELETE'
-  })
+  // The backend refuses to delete a paid bill unless force is set, so that
+  // reversing work someone has already been paid for takes a second decision.
+  delete: (billNumber, force = false) => apiCall(
+    `/bills/${billNumber}${force ? '?force=true' : ''}`,
+    { method: 'DELETE' }
+  )
 };
 
 // Bill editing API (qtyCompleted only)
