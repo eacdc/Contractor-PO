@@ -323,19 +323,21 @@ check('decrease with no billed row at all -> nothing changes',
 // pending; pending floors at 0, so a Packaging operation saved past its total
 // under the 5% allowance came back with the overshoot as fresh pending.
 const unsavePendingSrc = extract(
-  'const wdDocsAfterUnsave = await ContractorWD.find(',
+  'const recordedAfterUnsaveByOp = await recordedQtyByOpId(jobOpsMaster);',
   'jobOp.pendingOpsQty = Math.min(totalOpsQtyForUnsave, Math.max(0, totalOpsQtyForUnsave - recordedAfterUnsave));',
   'unsave pending');
 
 const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
 
-// wdDocs is the Contractor_WD state AFTER the row has been removed, which is
-// what the route reads: it saves the reversal before recomputing pending.
-const runUnsavePending = async (jobOp, wdDocs) => {
-  const ContractorWD = { find: () => ({ lean: async () => wdDocs }) };
-  const fn = new AsyncFunction('jobOp', 'jobNumber', 'ContractorWD',
+// recordedByOp is what the shared helper reports AFTER the row has been removed,
+// which is what the route reads: it saves the reversal before recomputing
+// pending. The helper counts live bills too, so billed work cannot come back as
+// pending just because its Contractor_WD row is gone.
+const runUnsavePending = async (jobOp, recordedByOp) => {
+  const recordedQtyByOpId = async () => recordedByOp;
+  const fn = new AsyncFunction('jobOp', 'jobOpsMaster', 'recordedQtyByOpId',
     unsavePendingSrc + '\n return jobOp.pendingOpsQty;');
-  return fn(jobOp, 'J1', ContractorWD);
+  return fn(jobOp, { jobId: 'J1' }, recordedQtyByOpId);
 };
 
 console.log('\n5) SAVED-WORK DELETE (unsave)  ->  pending from recorded work');
@@ -345,27 +347,26 @@ console.log('   (real block from routes.js)\n');
 // 106000 saved under the packaging allowance and then deleted.
 check('packaging overshoot deleted -> pending back to 100000, not 106000',
   await runUnsavePending({ opId: 'A', totalOpsQty: 120000, pendingOpsQty: 0 },
-                         [{ opsDone: [{ opsId: 'A', opsDoneQty: 20000 }] }]), 100000);
+                         { A: 20000 }), 100000);
 
 check('only saved row deleted -> pending back to the full total',
-  await runUnsavePending({ opId: 'A', totalOpsQty: 10000, pendingOpsQty: 2000 }, []), 10000);
+  await runUnsavePending({ opId: 'A', totalOpsQty: 10000, pendingOpsQty: 2000 }, {}), 10000);
 
 check('work recorded by another contractor stays out of pending',
   await runUnsavePending({ opId: 'A', totalOpsQty: 10000, pendingOpsQty: 0 },
-                         [{ opsDone: [{ opsId: 'A', opsDoneQty: 3000 }] },
-                          { opsDone: [{ opsId: 'A', opsDoneQty: 1000 }] }]), 6000);
+                         { A: 4000 }), 6000);
 
 check('other operations are not counted',
   await runUnsavePending({ opId: 'A', totalOpsQty: 10000, pendingOpsQty: 0 },
-                         [{ opsDone: [{ opsId: 'B', opsDoneQty: 9000 }] }]), 10000);
+                         { B: 9000 }), 10000);
 
 check('still overshot after the reversal -> clamped to 0',
   await runUnsavePending({ opId: 'A', totalOpsQty: 10000, pendingOpsQty: 0 },
-                         [{ opsDone: [{ opsId: 'A', opsDoneQty: 10400 }] }]), 0);
+                         { A: 10400 }), 0);
 
 check('pending was already wrong -> the reversal corrects it',
   await runUnsavePending({ opId: 'A', totalOpsQty: 30000, pendingOpsQty: 30000 },
-                         [{ opsDone: [{ opsId: 'A', opsDoneQty: 22000 }] }]), 8000);
+                         { A: 22000 }), 8000);
 
 // ===========================================================================
 // 6. PENDING ENDPOINT — which operations reach the entry screen (real block)
@@ -374,15 +375,21 @@ check('pending was already wrong -> the reversal corrects it',
 // may still be worked under the allowance and the save cap accepts it. If the
 // row is filtered out the quantity can never be entered, which is what happened
 // after a bill was cut from 106000 to 100000 on a 100000 operation.
-// Brace matching stops at the callback's own closing brace, so the statement is
-// taken by its end anchor instead — there is no nested `});` inside it.
+// Brace matching stops at each callback's own closing brace, so these are taken
+// by their end anchor instead — neither has a nested `});` inside it. The
+// endpoint derives pending rather than trusting the stored value, so that block
+// comes along: a document claiming pending the bills say is spent is exactly
+// what offers billed work for a second time.
+const effectivePendingSrc = extract(
+  'const effectivePending = {};', '});', 'effective pending');
 const pendingFilterSrc = extract(
   'const pendingOps = (jobOpsMaster.ops || []).filter(op => {',
   '});', 'pending filter');
 
 const runPendingFilter = (jobOpsMaster, recordedByOp) => {
   const fn = new Function('jobOpsMaster', 'recordedByOp', 'allowance', 'QTY_TOL',
-    pendingFilterSrc + '\n return pendingOps.map(o => o.opId);');
+    effectivePendingSrc + '\n' + pendingFilterSrc +
+    '\n return pendingOps.map(o => [o.opId, effectivePending[String(o.opId)]]);');
   return fn(jobOpsMaster, recordedByOp, packagingAllowanceFor(jobOpsMaster), 0.5);
 };
 
@@ -397,11 +404,11 @@ check('non-packaging, fully recorded -> row dropped',
 
 check('packaging, fully recorded -> row kept for the allowance',
   runPendingFilter({ segmentName: 'Packaging', totalQty: 100000, ops: opsOneFull },
-                   { A: 100000 }), ['A']);
+                   { A: 100000 }), [['A', 0]]);
 
 check('packaging, bill cut 106000 -> 100000 on a 100000 op -> row kept',
   runPendingFilter({ segmentName: 'Packaging', totalQty: 100000, ops: opsOneFull },
-                   { A: 100000 }), ['A']);
+                   { A: 100000 }), [['A', 0]]);
 
 check('packaging, allowance fully used -> row dropped',
   runPendingFilter({ segmentName: 'Packaging', totalQty: 100000, ops: opsOneFull },
@@ -413,19 +420,27 @@ check('packaging, allowance used past the limit -> row dropped',
 
 check('packaging, part of the allowance left -> row kept',
   runPendingFilter({ segmentName: 'Packaging', totalQty: 100000, ops: opsOneFull },
-                   { A: 104600 }), ['A']);
+                   { A: 104600 }), [['A', 0]]);
+
+// The reported case: a job billed and paid in January whose Contractor_WD
+// billed rows are gone. The document still claimed the full quantity as pending,
+// which is what let the whole job be entered again months later.
+check('document claims pending the bills say is spent -> row dropped',
+  runPendingFilter({ segmentName: 'Commercial', totalQty: 10000,
+                     ops: [{ opId: 'A', totalOpsQty: 10000, pendingOpsQty: 10000 }] },
+                   { A: 10000 }), []);
 
 check('pending above 0 is kept whatever the segment',
   runPendingFilter({ segmentName: 'Commercial', totalQty: 100000,
                      ops: [{ opId: 'A', totalOpsQty: 100000, pendingOpsQty: 2000 }] },
-                   { A: 98000 }), ['A']);
+                   { A: 98000 }), [['A', 2000]]);
 
 check('mixed ops: one has pending, one has allowance, one is spent',
   runPendingFilter({ segmentName: 'Packaging', totalQty: 100000, ops: [
     { opId: 'A', totalOpsQty: 100000, pendingOpsQty: 500 },
     { opId: 'B', totalOpsQty: 100000, pendingOpsQty: 0 },
     { opId: 'C', totalOpsQty: 100000, pendingOpsQty: 0 }
-  ] }, { A: 99500, B: 100000, C: 105000 }), ['A', 'B']);
+  ] }, { A: 99500, B: 100000, C: 105000 }), [['A', 500], ['B', 0]]);
 
 // ===========================================================================
 // 7. WORK SAVE — pending after recording new work (real block)
@@ -462,6 +477,53 @@ check('packaging save past the total -> pending clamps at 0',
 
 check('exactly finishing the operation -> pending 0',
   runSavePending(10000, 6000, 4000, 4000), 0);
+
+// ===========================================================================
+// 8. RECORDED WORK — live bills as a floor under Contractor_WD (real block)
+// ===========================================================================
+// Every pending figure in the system now comes from this one rule. A billed
+// Contractor_WD row can go missing while the bill that charged for the work is
+// still live; counting only Contractor_WD then reads as if the work were never
+// done, and the whole operation gets offered — and billed — again. That is what
+// put a job billed and paid in January back on the screen in October.
+const recordedRuleSrc = extract(
+  'Object.keys(out).forEach(k => {',
+  '});', 'recorded rule');
+
+const runRecordedRule = (entries) => {
+  const out = {};
+  Object.keys(entries).forEach(k => {
+    out[k] = { wdBilled: 0, wdUnsaved: 0, liveBilled: 0, recorded: 0, ...entries[k] };
+  });
+  new Function('out', recordedRuleSrc)(out);
+  const flat = {};
+  Object.keys(out).forEach(k => { flat[k] = out[k].recorded; });
+  return flat;
+};
+
+console.log('\n8) RECORDED WORK  ->  live bills as a floor under Contractor_WD');
+console.log('   (real block from routes.js)\n');
+
+check('Contractor_WD and the bill agree -> counted once, not twice',
+  runRecordedRule({ A: { wdBilled: 10000, liveBilled: 10000 } }), { A: 10000 });
+
+check('billed row lost from Contractor_WD -> the live bill still counts',
+  runRecordedRule({ A: { wdBilled: 0, liveBilled: 10000 } }), { A: 10000 });
+
+check('work saved and not submitted adds on top of the bill',
+  runRecordedRule({ A: { wdBilled: 10000, liveBilled: 10000, wdUnsaved: 2000 } }), { A: 12000 });
+
+check('the reported case: whole job re-entered against a paid bill',
+  runRecordedRule({ A: { wdBilled: 0, liveBilled: 10000, wdUnsaved: 10000 } }), { A: 20000 });
+
+check('nothing billed yet -> only the unsubmitted work counts',
+  runRecordedRule({ A: { wdUnsaved: 4000 } }), { A: 4000 });
+
+check('Contractor_WD holds more than the bill -> the larger side wins',
+  runRecordedRule({ A: { wdBilled: 12000, liveBilled: 10000 } }), { A: 12000 });
+
+check('an operation with nothing against it',
+  runRecordedRule({ A: {} }), { A: 0 });
 
 console.log(`\n${'='.repeat(70)}`);
 console.log(`  ${pass} passed, ${fail} failed`);
