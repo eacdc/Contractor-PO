@@ -549,6 +549,12 @@
       }
 
       // Helper: validate qty/book based on operation type
+      // Operation name with its Qty / Book in brackets, e.g. "Pasting (4)"
+      function opsLabel(op) {
+        const q = op && op.qtyBookDisplay;
+        return q !== undefined && q !== null && q !== '' ? `${op.opsName} (${q})` : op.opsName;
+      }
+
       function validateQtyBook(qtyValue, operation) {
         if (!operation) return { valid: false, message: 'Operation not found' };
         
@@ -903,7 +909,7 @@
               // Rows: each op, with qty per contractor + pending
               previousOps.operations.forEach(op => {
                 const row = document.createElement('tr');
-                let cellsHtml = `<td>${op.opsName}</td>`;
+                let cellsHtml = `<td>${opsLabel(op)}</td>`;
 
                 previousOps.contractors.forEach(c => {
                   const qty =
@@ -977,7 +983,7 @@
                   }
                 }
                 
-                row.innerHTML = `<td>${op.opsName}</td><td>0</td><td>${pending}</td>${actionCell}`;
+                row.innerHTML = `<td>${opsLabel(op)}</td><td>0</td><td>${pending}</td>${actionCell}`;
                 prevOpsBody.appendChild(row);
               });
             }
@@ -2214,7 +2220,7 @@
             
             jobData.previousOps.operations.forEach(op => {
               const row = document.createElement('tr');
-              let cellsHtml = `<td>${op.opsName}</td>`;
+              let cellsHtml = `<td>${opsLabel(op)}</td>`;
               
               jobData.previousOps.contractors.forEach(c => {
                 const qty = (op.quantitiesByContractor && op.quantitiesByContractor[c.contractorId]) || 0;
@@ -2269,7 +2275,7 @@
                 }
               }
               
-              row.innerHTML = `<td>${op.opsName}</td><td>0</td><td>${pending}</td>${actionCell}`;
+              row.innerHTML = `<td>${opsLabel(op)}</td><td>0</td><td>${pending}</td>${actionCell}`;
               tbody.appendChild(row);
             });
           }

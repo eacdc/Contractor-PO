@@ -385,6 +385,13 @@
       // allowance, so it stays on the screen with pending at 0. Nothing about
       // "Pending Qty 0" explains that, hence the badge — it only appears while
       // pending is 0 and there is allowance left to enter.
+      // Operation name with its Qty / Book in brackets, e.g. "Pasting (4)"
+      function opsLabel(op) {
+        const name = op.opsName || '-';
+        const q = op.qtyBookDisplay;
+        return q !== undefined && q !== null && q !== '' ? `${name} (${q})` : name;
+      }
+
       function allowanceNote(op, inputMax, pendingShown) {
         if (Number(pendingShown) > 0) return '';
         const room = Math.round(Number(op.allowanceRoom) || 0);
@@ -887,7 +894,7 @@
               ? `data-recorded-ops-qty="${recordedSoFar}"` : '';
             const row = document.createElement("tr");
             row.innerHTML = `
-              <td>${op.opsName || '-'}${allowanceNote(op, inputMax, adjustedPendingQty)}</td>
+              <td>${opsLabel(op)}${allowanceNote(op, inputMax, adjustedPendingQty)}</td>
               <td>${op.totalOpsQty || 0}</td>
               <td class="pending-cell">${adjustedPendingQty}</td>
               <td>
@@ -1601,7 +1608,7 @@
                       ? `data-recorded-ops-qty="${recordedSoFar}"` : '';
                     const row = document.createElement("tr");
                     row.innerHTML = `
-                      <td>${op.opsName || '-'}${allowanceNote(op, inputMax, adjustedPendingQty)}</td>
+                      <td>${opsLabel(op)}${allowanceNote(op, inputMax, adjustedPendingQty)}</td>
                       <td>${op.totalOpsQty || 0}</td>
                       <td class="pending-cell">${adjustedPendingQty}</td>
                       <td>
